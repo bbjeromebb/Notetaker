@@ -1,3 +1,7 @@
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
 import numpy as np
 
 from notetaker import cleanup, config
@@ -5,8 +9,9 @@ from notetaker.audio import AudioBuffer, SAMPLE_RATE, find_split_point, load_aud
 from notetaker.context import ActiveApp, style_for
 from notetaker.dictation import DictationEngine, Hooks
 from notetaker.hotkey import ChordState, parse_combo
-from notetaker.llm import LLMError
-from notetaker.meeting import MeetingRecorder, dedupe_echo, format_transcript, merge_segments
+from notetaker.llm import LLMError, OllamaLLM, build_llm, strip_think
+from notetaker.meeting import (MeetingRecorder, dedupe_echo, format_transcript, merge_segments,
+                               split_transcript, summarize)
 from notetaker.stt import Segment, vocab_prompt
 
 
@@ -233,3 +238,82 @@ def test_meeting_recorder_end_to_end(tmp_path):
     assert "## Transcriptie" in md and "We plannen de workshop." in md
     assert path.with_suffix(".wav").exists()
     assert "<transcriptie>" in llm.calls[0][1]
+
+
+# --- gratis LLM-backends -------------------------------------------------------
+
+def test_strip_think():
+    assert strip_think("<think>\nredeneren\n</think>\nHallo.") == "Hallo."
+
+
+def test_build_llm_defaults_to_ollama():
+    cfg = config.Config()
+    assert isinstance(build_llm(cfg.llm), OllamaLLM)
+    cfg.llm.backend = "none"
+    assert build_llm(cfg.llm) is None
+
+
+def _serve(handler_cls):
+    server = HTTPServer(("127.0.0.1", 0), handler_cls)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def test_ollama_request_sets_context_window():
+    seen = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen.update(path=self.path, body=body)
+            if body["model"] == "ontbreekt":
+                self.send_response(404); self.end_headers(); self.wfile.write(b"model not found")
+                return
+            out = json.dumps({"message": {"content": "<think>x</think>Opgekuist."}}).encode()
+            self.send_response(200); self.end_headers(); self.wfile.write(out)
+
+        def log_message(self, *a):
+            pass
+
+    server = _serve(Handler)
+    try:
+        cfg = config.Config()
+        cfg.llm.ollama_url = f"http://127.0.0.1:{server.server_port}"
+        llm = OllamaLLM(cfg.llm)
+        assert llm.complete("sys", "tekst", model="gemma3:4b", effort="low") == "Opgekuist."
+        assert seen["path"] == "/api/chat"
+        assert seen["body"]["options"]["num_ctx"] == 16384
+        assert seen["body"]["messages"][0] == {"role": "system", "content": "sys"}
+        try:
+            llm.complete("s", "p", model="ontbreekt", effort="low")
+            raise AssertionError("verwachtte LLMError")
+        except LLMError as e:
+            assert "ollama pull ontbreekt" in str(e)
+    finally:
+        server.shutdown()
+
+
+def test_ollama_unreachable_raises_llm_error():
+    cfg = config.Config()
+    cfg.llm.ollama_url = "http://127.0.0.1:9"
+    try:
+        OllamaLLM(cfg.llm).complete("s", "p", model="m", effort="low")
+        raise AssertionError("verwachtte LLMError")
+    except LLMError as e:
+        assert "niet bereikbaar" in str(e)
+
+
+def test_split_transcript_keeps_blocks():
+    blocks = [f"**[00:00:{i:02d}] Ik:** " + "woord " * 20 for i in range(20)]
+    text = "\n\n".join(blocks)
+    parts = split_transcript(text, 500)
+    assert len(parts) > 1 and all(len(p) <= 500 for p in parts)
+    assert "\n\n".join(parts) == text
+
+
+def test_long_transcript_map_reduce():
+    llm = FakeLLM("notities")
+    text = "\n\n".join(["**[00:00:00] Ik:** " + "x" * 90] * 10)
+    summarize(llm, text, model="m", effort="low", title="T", chunk_chars=250)
+    assert len(llm.calls) > 2
+    assert "Deel 1" in llm.calls[-1][1] and llm.calls[-1][0].startswith("Je maakt een verslag")

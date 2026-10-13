@@ -29,7 +29,7 @@ Notetaker is een functionele herbouw (clean-room): het gedrag van Wispr Flow is 
                                             v
                  stt (faster-whisper lokaal | OpenAI-compatibele API)
                                             v
-                 cleanup: snippets -> Claude-opkuis (stijl per app) -> woordenboek
+                 cleanup: snippets -> LLM-opkuis (stijl per app) -> woordenboek
                                             v
                  inserter: klembord + Ctrl+V, klembord herstellen
 
@@ -38,7 +38,7 @@ Notetaker is een functionele herbouw (clean-room): het gedrag van Wispr Flow is 
  systeemgeluid ->| kanaal "Anderen"   > chunks van 30 s, knip in stilte|
  (WASAPI-loopback)                   /  -> transcriptie per kanaal   |
                  | echo-filter -> samenvoegen op tijd -> live .md      |
-                 | stop: Claude-verslag (samenvatting, beslissingen,   |
+                 | stop: LLM-verslag (samenvatting, beslissingen,      |
                  |       actiepunten, open vragen) + .wav              |
                  +---------------------------------------------------+
 ```
@@ -46,7 +46,7 @@ Notetaker is een functionele herbouw (clean-room): het gedrag van Wispr Flow is 
 | Wispr-functie | Module | Verschil |
 |---|---|---|
 | Push-to-talk, hands-free | `hotkey.py` | Ctrl+Win vasthouden; dubbeltik of spatie = hands-free; Esc annuleert |
-| Opkuis | `cleanup.py`, `llm.py` | Claude met lage effort; zonder LLM regelgebaseerde terugval |
+| Opkuis | `cleanup.py`, `llm.py` | Ollama lokaal (standaard), Groq/Gemini gratis tier of Claude; zonder LLM regelgebaseerde terugval |
 | Context | `context.py` | Enkel procesnaam en venstertitel, geen scherminhoud |
 | Command Mode | `dictation.py` | Ctrl+Win+Alt; selectie via Ctrl+C |
 | Woordenboek | `config.toml` `dictionary`, `replacements` | Ook als hint aan Whisper (initial prompt) |
@@ -57,6 +57,7 @@ Notetaker is een functionele herbouw (clean-room): het gedrag van Wispr Flow is 
 ## Beperkingen
 
 - Sprekerherkenning onderscheidt enkel microfoon en systeemgeluid. Echte diarisatie (pyannote) vergt een HuggingFace-token en een GPU voor redelijke snelheid.
+- Lokale modellen zijn kleiner dan cloudmodellen: `gemma3:4b` kuist dictee goed op, maar volgt complexe instructies (commandomodus) minder strikt dan een groot model.
 - Lokale `large-v3-turbo` op CPU: enkele seconden latency per dictee. Met een NVIDIA-GPU of de API-backend (Groq) zakt dat onder één seconde.
 - Opname van anderen in een vergadering vraagt hun toestemming (GDPR, art. 6). De app toont geen melding aan andere deelnemers.
 - Ctrl+Win+Spatie wisselt in Windows de invoertaal; gebruik bij conflicten de dubbeltik.

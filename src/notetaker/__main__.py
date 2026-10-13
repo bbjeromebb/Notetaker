@@ -31,7 +31,7 @@ def cmd_meeting(cfg, args) -> None:
 
     m = cfg.meeting
     loop = None if args.mic_only else LoopbackRecorder(m.loopback_device)
-    rec = MeetingRecorder(cfg, build_transcriber(cfg.stt), build_llm(cfg.llm.backend),
+    rec = MeetingRecorder(cfg, build_transcriber(cfg.stt), build_llm(cfg.llm),
                           MicRecorder(m.mic_device), loop)
     path = rec.start(args.title or "")
     print(f"Opname loopt, live transcriptie in {path}. Ctrl+C om te stoppen.")
@@ -55,10 +55,11 @@ def cmd_transcribe(cfg, args) -> None:
     transcript = format_transcript(segs)
     summary = ""
     if args.summarize:
-        llm = build_llm(cfg.llm.backend)
+        llm = build_llm(cfg.llm)
         if llm is not None:
             summary = summarize(llm, transcript, model=cfg.llm.summary_model,
-                                effort=cfg.llm.summary_effort, title=src.stem)
+                                effort=cfg.llm.summary_effort, title=src.stem,
+                                chunk_chars=cfg.llm.summary_chunk_chars)
     out = Path(args.output) if args.output else src.with_suffix(".md")
     started = datetime.fromtimestamp(src.stat().st_mtime)
     out.write_text(render_markdown(src.stem, started, audio.size / 16000, summary, transcript),
@@ -74,11 +75,11 @@ def cmd_summarize(cfg, args) -> None:
     text = path.read_text(encoding="utf-8")
     match = re.search(r"## Transcriptie\n(.*)", text, re.S)
     transcript = match.group(1) if match else text
-    llm = build_llm(cfg.llm.backend)
+    llm = build_llm(cfg.llm)
     if llm is None:
-        sys.exit("Samenvatten vereist [llm] backend = \"anthropic\".")
+        sys.exit("Samenvatten vereist een [llm] backend, bv. \"ollama\".")
     summary = summarize(llm, transcript, model=cfg.llm.summary_model, effort=cfg.llm.summary_effort,
-                        title=path.stem)
+                        title=path.stem, chunk_chars=cfg.llm.summary_chunk_chars)
     out = path.with_name(path.stem + "_verslag.md")
     out.write_text(summary + "\n", encoding="utf-8")
     print(f"Geschreven: {out}")

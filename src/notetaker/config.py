@@ -31,12 +31,23 @@ class STTConfig:
 
 @dataclass
 class LLMConfig:
-    # "anthropic" of "none" (enkel regelgebaseerde opkuis, geen cloud-LLM)
-    backend: str = "anthropic"
-    cleanup_model: str = "claude-opus-5-5"
+    # "ollama" (lokaal, gratis), "openai-compatible" (Groq/Gemini/OpenRouter), "anthropic" of "none"
+    backend: str = "ollama"
+    cleanup_model: str = "gemma3:4b"
+    summary_model: str = "gemma3:12b"
+    temperature: float = 0.2
+    # Ollama
+    ollama_url: str = "http://localhost:11434"
+    num_ctx: int = 16384
+    keep_alive: str = "30m"
+    # OpenAI-compatibele API
+    api_base: str = "https://api.groq.com/openai/v1"
+    api_key_env: str = "GROQ_API_KEY"
+    # Enkel voor Anthropic
     cleanup_effort: str = "low"
-    summary_model: str = "claude-opus-5-5"
     summary_effort: str = "high"
+    # Langere transcripten worden in delen samengevat (kleine modellen, rate limits van gratis tiers)
+    summary_chunk_chars: int = 24000
 
 
 @dataclass

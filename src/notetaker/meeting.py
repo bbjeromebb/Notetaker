@@ -83,9 +83,50 @@ def format_transcript(segments: list[Segment]) -> str:
     return "\n\n".join(f"**[{fmt_ts(s.start)}] {s.speaker}:** {s.text}" for s in segments)
 
 
-def summarize(llm: LLM, transcript: str, *, model: str, effort: str, title: str = "") -> str:
-    prompt = (f"Titel: {title}\n\n" if title else "") + f"<transcriptie>\n{transcript}\n</transcriptie>"
-    return llm.complete(SUMMARY_SYSTEM, prompt, model=model, effort=effort, max_tokens=32000)
+NOTES_SYSTEM = """Je krijgt een deel van een vergadertranscriptie. Noteer beknopt in het Nederlands, als opsomming:
+besproken onderwerpen met de kern, beslissingen, actiepunten (wie, wat, deadline) en open vragen.
+Verzin niets. Geef enkel de notities terug."""
+
+
+def split_transcript(transcript: str, max_chars: int) -> list[str]:
+    """Knipt op blokgrenzen (lege regels), zodat geen spreekbeurt doormidden gaat."""
+    if len(transcript) <= max_chars:
+        return [transcript]
+    parts, current = [], ""
+    for block in transcript.split("\n\n"):
+        while len(block) > max_chars:  # extreem lange spreekbeurt
+            parts.append(block[:max_chars])
+            block = block[max_chars:]
+        if current and len(current) + len(block) + 2 > max_chars:
+            parts.append(current)
+            current = block
+        else:
+            current = f"{current}\n\n{block}" if current else block
+    if current:
+        parts.append(current)
+    return parts
+
+
+def summarize(llm: LLM, transcript: str, *, model: str, effort: str, title: str = "",
+              chunk_chars: int = 24000) -> str:
+    """Kort transcript: één oproep. Lang transcript: eerst notities per deel, dan één verslag."""
+    head = f"Titel: {title}\n\n" if title else ""
+    parts = split_transcript(transcript, chunk_chars)
+    if len(parts) == 1:
+        return llm.complete(SUMMARY_SYSTEM, f"{head}<transcriptie>\n{transcript}\n</transcriptie>",
+                            model=model, effort=effort, max_tokens=8000)
+    notes = []
+    for i, part in enumerate(parts, 1):
+        log.info("Deel %d/%d samenvatten", i, len(parts))
+        notes.append(f"### Deel {i}\n" + llm.complete(
+            NOTES_SYSTEM, f"<transcriptie>\n{part}\n</transcriptie>",
+            model=model, effort=effort, max_tokens=4000))
+    joined = "\n\n".join(notes)
+    return llm.complete(
+        SUMMARY_SYSTEM,
+        f"{head}De transcriptie was te lang en is per deel genoteerd, in chronologische volgorde.\n\n"
+        f"<transcriptie>\n{joined}\n</transcriptie>",
+        model=model, effort=effort, max_tokens=8000)
 
 
 def render_markdown(title: str, started: datetime, duration: float, summary: str,
@@ -214,7 +255,8 @@ class MeetingRecorder:
         if self.llm is not None and transcript.strip():
             try:
                 summary = summarize(self.llm, transcript, model=self.cfg.llm.summary_model,
-                                    effort=self.cfg.llm.summary_effort, title=self.title)
+                                    effort=self.cfg.llm.summary_effort, title=self.title,
+                                    chunk_chars=self.cfg.llm.summary_chunk_chars)
             except LLMError as e:
                 log.error("Samenvatting mislukt: %s", e)
                 summary = f"_Samenvatting mislukt: {e}. Gebruik later 'notetaker summarize'._"

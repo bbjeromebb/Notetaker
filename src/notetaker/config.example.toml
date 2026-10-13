@@ -14,11 +14,29 @@ language = "nl"
 # api_key_env = "GROQ_API_KEY"
 
 [llm]
-backend = "anthropic"           # of "none"
-cleanup_model = "claude-opus-5-5"
-cleanup_effort = "low"
-summary_model = "claude-opus-5-5"
-summary_effort = "high"
+# Standaard: Ollama, lokaal en gratis. Installeer via https://ollama.com en voer uit:
+#   ollama pull gemma3:4b
+#   ollama pull gemma3:12b
+backend = "ollama"
+cleanup_model = "gemma3:4b"     # klein en snel genoeg voor dictee
+summary_model = "gemma3:12b"    # beter voor verslagen; minder RAM: "gemma3:4b"
+num_ctx = 16384                 # contextvenster; hoger = meer geheugen
+summary_chunk_chars = 24000     # langere transcripten worden in delen samengevat
+
+# Alternatief 1: Groq, gratis tier (rate limits, data naar de VS)
+# backend = "openai-compatible"
+# api_base = "https://api.groq.com/openai/v1"
+# api_key_env = "GROQ_API_KEY"
+# cleanup_model = "llama-3.1-8b-instant"
+# summary_model = "llama-3.3-70b-versatile"
+# summary_chunk_chars = 12000
+
+# Alternatief 2: Google Gemini, gratis tier (Google mag invoer gebruiken om producten te verbeteren)
+# backend = "openai-compatible"
+# api_base = "https://generativelanguage.googleapis.com/v1beta/openai/"
+# api_key_env = "GEMINI_API_KEY"
+# cleanup_model = "gemini-2.5-flash-lite"
+# summary_model = "gemini-2.5-flash"
 
 [dictation]
 hotkey = "ctrl+cmd"             # vasthouden = praten, dubbeltik = hands-free

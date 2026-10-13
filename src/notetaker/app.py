@@ -57,7 +57,9 @@ class TrayApp:
         self.cfg = cfg
         log.info("Spraakmodel laden (%s, %s)...", cfg.stt.backend, cfg.stt.model)
         self.transcriber = build_transcriber(cfg.stt)
-        self.llm = build_llm(cfg.llm.backend)
+        self.llm = build_llm(cfg.llm)
+        if hasattr(self.llm, "warmup"):
+            threading.Thread(target=self._warmup, daemon=True).start()
         self.mic = MicRecorder(cfg.dictation.mic_device)
         d = cfg.dictation
         self.state = ChordState(parse_combo(d.hotkey), parse_combo(d.command_hotkey),
@@ -73,6 +75,13 @@ class TrayApp:
         )
         self.meeting: MeetingRecorder | None = None
         self.icon = None
+
+    def _warmup(self) -> None:
+        try:
+            self.llm.warmup(self.cfg.llm.cleanup_model)
+            log.info("Taalmodel %s geladen.", self.cfg.llm.cleanup_model)
+        except Exception as e:
+            log.warning("Taalmodel opwarmen mislukt: %s", e)
 
     def _on_hotkey(self, event: str, mode: str | None) -> None:
         if self.meeting is not None and self.meeting.running:

@@ -9,10 +9,16 @@ py -3.12 -m venv .venv
 .venv\Scripts\activate
 pip install -e .
 notetaker init-config
-setx ANTHROPIC_API_KEY "sk-ant-..."
 ```
 
-De eerste start downloadt het Whisper-model (ongeveer 1,6 GB voor `large-v3-turbo`). Met een NVIDIA-GPU: installeer CUDA 12 en cuDNN 9, dan kiest `device = "auto"` de GPU.
+Taalmodel (gratis, lokaal): installeer [Ollama](https://ollama.com) en haal de modellen op:
+
+```powershell
+ollama pull gemma3:4b    # opkuis van dictee, ~3,3 GB
+ollama pull gemma3:12b   # vergaderverslagen, ~8 GB (minder dan 16 GB RAM: gebruik gemma3:4b)
+```
+
+De eerste start downloadt het Whisper-model (ongeveer 1,6 GB voor `large-v3-turbo`). Met een NVIDIA-GPU: installeer CUDA 12 en cuDNN 9, dan kiest `device = "auto"` de GPU. Spraakherkenning en taalmodel draaien dan allebei lokaal: geen kosten, geen audio of tekst naar buiten.
 
 ## Gebruik
 
@@ -39,12 +45,16 @@ Een vergadering levert één Markdown-bestand op met samenvatting, besproken pun
 
 | Keuze | Privacy | Snelheid | Kost |
 |---|---|---|---|
-| `stt.backend = "faster-whisper"` | audio blijft lokaal | CPU traag, GPU snel | gratis |
-| `stt.backend = "openai-api"` (Groq) | audio naar de cloud | zeer snel | per minuut |
-| `llm.backend = "anthropic"` | tekst naar Anthropic | ~1 s per dictee | per token |
+| `stt.backend = "faster-whisper"` (standaard) | audio blijft lokaal | CPU traag, GPU snel | gratis |
+| `llm.backend = "ollama"` (standaard) | tekst blijft lokaal | 1 tot 5 s per dictee, afhankelijk van hardware | gratis |
+| `llm.backend = "openai-compatible"` + Groq | tekst naar de VS | snel | gratis tier met rate limits |
+| `llm.backend = "openai-compatible"` + Gemini | Google mag gratis invoer gebruiken | snel | gratis tier |
+| `llm.backend = "anthropic"` | tekst naar Anthropic | snel | betalend (`pip install -e ".[claude]"`) |
 | `llm.backend = "none"` | volledig lokaal | direct | gratis, enkel basisopkuis |
 
-Standaardmodel is `claude-opus-5-5` (opkuis op `effort = "low"`, verslag op `"high"`), met server-side fallback bij een weigering. Voor kortere latency bij dicteren: `cleanup_model = "claude-haiku-5-5"`.
+Voor Groq of Gemini: `pip install -e ".[api]"`, maak een gratis sleutel aan en zet die als omgevingsvariabele (`setx GROQ_API_KEY "..."`). Voorbeeldinstellingen staan in commentaar in de configuratie.
+
+Lange vergaderingen worden in delen samengevat (`summary_chunk_chars`) en daarna samengevoegd tot één verslag. Dat houdt kleine lokale modellen en de limieten van gratis tiers binnen hun grenzen.
 
 ## Ontwikkeling
 
