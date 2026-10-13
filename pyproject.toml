@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "notetaker"
+version = "0.1.0"
+description = "Dicteren in elke Windows-app en vergaderingen (ook online) transcriberen en samenvatten."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "sounddevice>=0.4.6",
+    "pynput>=1.7.6",
+    "pyperclip>=1.8.2",
+    "pystray>=0.19.5",
+    "Pillow>=10.0",
+    "anthropic>=1.0",
+    "faster-whisper>=1.1.0",
+    "PyAudioWPatch>=0.2.12; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+api-stt = ["openai>=1.40"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+notetaker = "notetaker.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.setuptools.package-data]
+notetaker = ["*.toml"]

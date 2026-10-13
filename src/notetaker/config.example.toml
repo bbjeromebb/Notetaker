@@ -1,0 +1,51 @@
+# Notetaker-configuratie. Alle sleutels zijn optioneel.
+# Windows: %APPDATA%\Notetaker\config.toml
+
+dictionary = ["Leiedal", "Kortrijk", "RUP", "MER", "GECORO"]
+
+[stt]
+backend = "faster-whisper"      # of "openai-api"
+model = "large-v3-turbo"        # kleiner = sneller op CPU: "small", "medium"
+device = "auto"
+compute_type = "int8"
+language = "nl"
+# api_base = "https://api.groq.com/openai/v1"
+# api_model = "whisper-large-v3-turbo"
+# api_key_env = "GROQ_API_KEY"
+
+[llm]
+backend = "anthropic"           # of "none"
+cleanup_model = "claude-opus-5-5"
+cleanup_effort = "low"
+summary_model = "claude-opus-5-5"
+summary_effort = "high"
+
+[dictation]
+hotkey = "ctrl+cmd"             # vasthouden = praten, dubbeltik = hands-free
+command_hotkey = "ctrl+cmd+alt" # selectie herschrijven op stem
+handsfree_key = "space"
+sounds = true
+
+[meeting]
+chunk_seconds = 30
+mic_label = "Ik"
+others_label = "Anderen"
+keep_audio = true
+# output_dir = "C:/Users/naam/Documents/Notetaker"
+
+[replacements]
+"lei dal" = "Leiedal"
+
+[snippets]
+"mijn handtekening" = "Met vriendelijke groeten,\nVoornaam Achternaam"
+
+[styles]
+"outlook.exe" = "email"
+"olk.exe" = "email"
+"thunderbird.exe" = "email"
+"teams.exe" = "chat"
+"ms-teams.exe" = "chat"
+"slack.exe" = "chat"
+"whatsapp.exe" = "chat"
+"code.exe" = "code"
+"winword.exe" = "formal"
