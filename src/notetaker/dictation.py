@@ -55,6 +55,7 @@ class DictationEngine:
                 self.hooks.on_state("recording")
             elif event == "mode":
                 self.mode = mode
+                self.hooks.on_state("recording")
             elif event == "latch":
                 self.hooks.on_state("handsfree")
             elif event == "cancel":

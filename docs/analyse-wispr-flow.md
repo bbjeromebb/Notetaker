@@ -52,7 +52,9 @@ Notetaker is een functionele herbouw (clean-room): het gedrag van Wispr Flow is 
 | Woordenboek | `config.toml` `dictionary`, `replacements` | Ook als hint aan Whisper (initial prompt) |
 | Snippets | `cleanup.protect_snippets` | Placeholders beschermen de trigger tegen herformulering door het LLM |
 | Geschiedenis | `history.jsonl` | Lokaal, met ruwe en opgeschoonde tekst en latency |
+| Opnamevenster | `overlay.py` | Zwevende balk met toestand en niveaumeter, zonder focus te nemen |
 | Vergaderingen | `meeting.py` | Extra; sprekerscheiding enkel jij versus de rest |
+| Notities | `obsidian.py` | Extra; verslagen met frontmatter en taken in een Obsidian-vault naar keuze |
 
 ## Beperkingen
 

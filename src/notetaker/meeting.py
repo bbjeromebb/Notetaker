@@ -13,6 +13,7 @@ import numpy as np
 from .audio import SAMPLE_RATE, find_split_point, rms, write_wav
 from .config import Config
 from .llm import LLM, LLMError
+from .obsidian import frontmatter
 from .stt import Segment, Transcriber, vocab_prompt
 
 log = logging.getLogger(__name__)
@@ -32,12 +33,20 @@ Per onderwerp een kopje of opsommingsteken met de kern.
 Enkel wat expliciet beslist werd. Geen beslissingen: schrijf "Geen expliciete beslissingen."
 
 ## Actiepunten
-Tabel met kolommen Wie | Wat | Deadline. Onbekend = "-".
+{actions}
 
 ## Open vragen
 Wat onbeantwoord bleef.
 
 Geef enkel het verslag terug, zonder inleiding."""
+
+ACTIONS_TABLE = 'Tabel met kolommen Wie | Wat | Deadline. Onbekend = "-".'
+ACTIONS_TASKS = ('Elke actie als taak op een eigen regel: "- [ ] Wat (wie, deadline)". '
+                 'Laat wie of deadline weg als die onbekend is.')
+
+
+def summary_system(tasks: bool = False) -> str:
+    return SUMMARY_SYSTEM.replace("{actions}", ACTIONS_TASKS if tasks else ACTIONS_TABLE)
 
 
 def fmt_ts(seconds: float) -> str:
@@ -108,12 +117,12 @@ def split_transcript(transcript: str, max_chars: int) -> list[str]:
 
 
 def summarize(llm: LLM, transcript: str, *, model: str, effort: str, title: str = "",
-              chunk_chars: int = 24000) -> str:
+              chunk_chars: int = 24000, tasks: bool = False) -> str:
     """Kort transcript: één oproep. Lang transcript: eerst notities per deel, dan één verslag."""
     head = f"Titel: {title}\n\n" if title else ""
     parts = split_transcript(transcript, chunk_chars)
     if len(parts) == 1:
-        return llm.complete(SUMMARY_SYSTEM, f"{head}<transcriptie>\n{transcript}\n</transcriptie>",
+        return llm.complete(summary_system(tasks), f"{head}<transcriptie>\n{transcript}\n</transcriptie>",
                             model=model, effort=effort, max_tokens=8000)
     notes = []
     for i, part in enumerate(parts, 1):
@@ -123,7 +132,7 @@ def summarize(llm: LLM, transcript: str, *, model: str, effort: str, title: str 
             model=model, effort=effort, max_tokens=4000))
     joined = "\n\n".join(notes)
     return llm.complete(
-        SUMMARY_SYSTEM,
+        summary_system(tasks),
         f"{head}De transcriptie was te lang en is per deel genoteerd, in chronologische volgorde.\n\n"
         f"<transcriptie>\n{joined}\n</transcriptie>",
         model=model, effort=effort, max_tokens=8000)
@@ -136,6 +145,23 @@ def render_markdown(title: str, started: datetime, duration: float, summary: str
             f"- Duur: {fmt_ts(duration)}\n\n")
     body = summary.strip() + "\n\n" if summary else ""
     return head + body + "## Transcriptie\n\n" + transcript + "\n"
+
+
+def render_note(cfg: Config, title: str, started: datetime, duration: float, summary: str,
+                transcript: str, audio_path: Path | None = None) -> str:
+    """Gewone Markdown, of in een Obsidian-vault: met frontmatter en ingesloten audio."""
+    if not cfg.obsidian.vault:
+        return render_markdown(title, started, duration, summary, transcript)
+    audio = ""
+    embed = ""
+    if audio_path is not None:
+        if cfg.obsidian.audio_in_vault:
+            audio, embed = audio_path.name, f"![[{audio_path.name}]]\n\n"
+        else:
+            audio = str(audio_path)
+    fm = frontmatter(title, started, fmt_ts(duration), cfg.obsidian.tags, audio)
+    body = summary.strip() + "\n\n" if summary else ""
+    return fm + f"# {title}\n\n" + embed + body + "## Transcriptie\n\n" + transcript + "\n"
 
 
 def safe_filename(text: str) -> str:
@@ -163,12 +189,14 @@ class MeetingRecorder:
         if loopback is not None:
             self.channels.append(_Channel(loopback, cfg.meeting.others_label))
         self.out_dir = out_dir or cfg.meetings_dir
+        self.audio_dir = out_dir or cfg.audio_dir
         self.title = ""
         self.started: datetime | None = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._tx_lock = threading.Lock()
         self.live_path: Path | None = None
+        self.audio_path: Path | None = None
 
     @property
     def running(self) -> bool:
@@ -180,6 +208,7 @@ class MeetingRecorder:
         self.out_dir.mkdir(parents=True, exist_ok=True)
         stem = f"{self.started:%Y-%m-%d_%H%M}_{safe_filename(self.title)}"
         self.live_path = self.out_dir / f"{stem}.md"
+        self.audio_path = self.audio_dir / f"{stem}.wav" if self.cfg.meeting.keep_audio else None
         for ch in self.channels:
             ch.recorder.start()
         self._stop.clear()
@@ -233,7 +262,8 @@ class MeetingRecorder:
             return
         duration = (datetime.now() - self.started).total_seconds()
         self.live_path.write_text(
-            render_markdown(self.title, self.started, duration, "_Opname loopt..._", self.transcript()),
+            render_note(self.cfg, self.title, self.started, duration, "_Opname loopt..._",
+                        self.transcript()),
             encoding="utf-8",
         )
 
@@ -248,33 +278,37 @@ class MeetingRecorder:
         self._process(final=True)
         assert self.started is not None and self.live_path is not None
         duration = (datetime.now() - self.started).total_seconds()
-        if self.cfg.meeting.keep_audio:
-            self._save_audio()
+        if self.audio_path is not None and not self._save_audio():
+            self.audio_path = None
         transcript = self.transcript()
         summary = ""
         if self.llm is not None and transcript.strip():
             try:
                 summary = summarize(self.llm, transcript, model=self.cfg.llm.summary_model,
                                     effort=self.cfg.llm.summary_effort, title=self.title,
-                                    chunk_chars=self.cfg.llm.summary_chunk_chars)
+                                    chunk_chars=self.cfg.llm.summary_chunk_chars,
+                                    tasks=bool(self.cfg.obsidian.vault and self.cfg.obsidian.tasks))
             except LLMError as e:
                 log.error("Samenvatting mislukt: %s", e)
                 summary = f"_Samenvatting mislukt: {e}. Gebruik later 'notetaker summarize'._"
         self.live_path.write_text(
-            render_markdown(self.title, self.started, duration, summary, transcript), encoding="utf-8")
+            render_note(self.cfg, self.title, self.started, duration, summary, transcript,
+                        self.audio_path), encoding="utf-8")
         return self.live_path
 
-    def _save_audio(self) -> None:
-        assert self.live_path is not None
+    def _save_audio(self) -> bool:
+        assert self.audio_path is not None
         tracks = [np.concatenate(ch.full) for ch in self.channels if ch.full]
         if not tracks:
-            return
+            return False
         length = max(t.size for t in tracks)
         mix = np.zeros(length, dtype=np.float32)
         for t in tracks:
             mix[: t.size] += t
         peak = float(np.max(np.abs(mix))) or 1.0
-        write_wav(self.live_path.with_suffix(".wav"), mix / max(peak, 1.0))
+        self.audio_path.parent.mkdir(parents=True, exist_ok=True)
+        write_wav(self.audio_path, mix / max(peak, 1.0))
+        return True
 
 
 def transcribe_file(cfg: Config, transcriber: Transcriber, audio: np.ndarray,

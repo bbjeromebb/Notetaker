@@ -1,4 +1,4 @@
-"""Opdrachtregel: `notetaker run | meeting | transcribe | summarize | init-config | devices`."""
+"""Opdrachtregel: `notetaker run | meeting | transcribe | summarize | vault | init-config | devices`."""
 from __future__ import annotations
 
 import argparse
@@ -20,7 +20,7 @@ def _setup_logging(verbose: bool) -> None:
 def cmd_run(cfg, args) -> None:
     from .app import TrayApp
 
-    TrayApp(cfg).run()
+    TrayApp(cfg, args.config).run()
 
 
 def cmd_meeting(cfg, args) -> None:
@@ -46,7 +46,7 @@ def cmd_meeting(cfg, args) -> None:
 def cmd_transcribe(cfg, args) -> None:
     from .audio import load_audio
     from .llm import build_llm
-    from .meeting import format_transcript, render_markdown, summarize, transcribe_file
+    from .meeting import format_transcript, render_note, safe_filename, summarize, transcribe_file
     from .stt import build_transcriber
 
     src = Path(args.file)
@@ -59,11 +59,18 @@ def cmd_transcribe(cfg, args) -> None:
         if llm is not None:
             summary = summarize(llm, transcript, model=cfg.llm.summary_model,
                                 effort=cfg.llm.summary_effort, title=src.stem,
-                                chunk_chars=cfg.llm.summary_chunk_chars)
-    out = Path(args.output) if args.output else src.with_suffix(".md")
+                                chunk_chars=cfg.llm.summary_chunk_chars,
+                                tasks=bool(cfg.obsidian.vault and cfg.obsidian.tasks))
     started = datetime.fromtimestamp(src.stat().st_mtime)
-    out.write_text(render_markdown(src.stem, started, audio.size / 16000, summary, transcript),
-                   encoding="utf-8")
+    if args.output:
+        out = Path(args.output)
+    elif cfg.obsidian.vault:
+        cfg.meetings_dir.mkdir(parents=True, exist_ok=True)
+        out = cfg.meetings_dir / f"{started:%Y-%m-%d_%H%M}_{safe_filename(src.stem)}.md"
+    else:
+        out = src.with_suffix(".md")
+    out.write_text(render_note(cfg, src.stem, started, audio.size / 16000, summary, transcript,
+                               src.resolve()), encoding="utf-8")
     print(f"Geschreven: {out}")
 
 
@@ -79,10 +86,33 @@ def cmd_summarize(cfg, args) -> None:
     if llm is None:
         sys.exit("Samenvatten vereist een [llm] backend, bv. \"ollama\".")
     summary = summarize(llm, transcript, model=cfg.llm.summary_model, effort=cfg.llm.summary_effort,
-                        title=path.stem, chunk_chars=cfg.llm.summary_chunk_chars)
+                        title=path.stem, chunk_chars=cfg.llm.summary_chunk_chars,
+                        tasks=bool(cfg.obsidian.vault and cfg.obsidian.tasks))
     out = path.with_name(path.stem + "_verslag.md")
     out.write_text(summary + "\n", encoding="utf-8")
     print(f"Geschreven: {out}")
+
+
+def cmd_vault(cfg, args) -> None:
+    from .obsidian import is_vault, known_vaults, set_vault
+
+    path = args.config or config_mod.default_path()
+    if args.off:
+        set_vault(path, "")
+        print("Verslagen gaan weer naar", cfg.default_dir)
+        return
+    if not args.path:
+        print("Huidige vault:", cfg.obsidian.vault or "(geen)")
+        for v in known_vaults():
+            print("  bekend:", v)
+        return
+    vault = Path(args.path).expanduser().resolve()
+    if not vault.is_dir():
+        sys.exit(f"Map bestaat niet: {vault}")
+    if not is_vault(vault):
+        print(f"Let op: {vault} bevat geen .obsidian-map. Open ze eerst als vault in Obsidian.")
+    set_vault(path, str(vault))
+    print(f"Verslagen gaan voortaan naar {vault / cfg.obsidian.folder}")
 
 
 def cmd_init(cfg, args) -> None:
@@ -113,6 +143,10 @@ def main(argv: list[str] | None = None) -> None:
     s = sub.add_parser("summarize", help="verslag maken van een bestaande transcriptie")
     s.add_argument("file")
     s.set_defaults(fn=cmd_summarize)
+    v = sub.add_parser("vault", help="Obsidian-vault kiezen voor verslagen")
+    v.add_argument("path", nargs="?", help="map van de vault; leeg = huidige en bekende tonen")
+    v.add_argument("--off", action="store_true", help="niet meer in Obsidian opslaan")
+    v.set_defaults(fn=cmd_vault)
     sub.add_parser("init-config", help="voorbeeldconfiguratie aanmaken").set_defaults(fn=cmd_init)
     sub.add_parser("devices", help="audioapparaten tonen").set_defaults(fn=cmd_devices)
     args = p.parse_args(argv)

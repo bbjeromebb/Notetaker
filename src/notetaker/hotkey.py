@@ -23,6 +23,18 @@ def canonical(name: str) -> str:
     return _ALIASES.get(name, name)
 
 
+_DISPLAY = {"ctrl": "Ctrl", "cmd": "Win", "alt": "Alt", "shift": "Shift", "space": "Spatie",
+            "escape": "Esc"}
+
+
+def display_combo(spec: str) -> str:
+    """Leesbare naam voor menu en opnamevenster: "ctrl+cmd" -> "Ctrl+Win"."""
+    order = ["ctrl", "cmd", "alt", "shift"]
+    keys = [canonical(p.strip()) for p in spec.split("+") if p.strip()]
+    keys.sort(key=lambda k: order.index(k) if k in order else len(order))
+    return "+".join(_DISPLAY.get(k, k.upper() if len(k) == 1 else k.capitalize()) for k in keys)
+
+
 def parse_combo(spec: str) -> frozenset[str]:
     return frozenset(canonical(p.strip()) for p in spec.split("+") if p.strip())
 

@@ -61,6 +61,7 @@ class DictationConfig:
     silence_rms: float = 0.004
     paste_delay: float = 0.12
     sounds: bool = True
+    overlay: bool = True
     mic_device: str = ""
 
 
@@ -77,11 +78,21 @@ class MeetingConfig:
 
 
 @dataclass
+class ObsidianConfig:
+    vault: str = ""  # leeg = niet in Obsidian opslaan
+    folder: str = "Vergaderingen"
+    tags: list[str] = field(default_factory=lambda: ["vergadering"])
+    tasks: bool = True  # actiepunten als Obsidian-taken (- [ ]) in plaats van een tabel
+    audio_in_vault: bool = False  # WAV-bestanden zijn groot; standaard buiten de vault
+
+
+@dataclass
 class Config:
     stt: STTConfig = field(default_factory=STTConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     dictation: DictationConfig = field(default_factory=DictationConfig)
     meeting: MeetingConfig = field(default_factory=MeetingConfig)
+    obsidian: ObsidianConfig = field(default_factory=ObsidianConfig)
     # Eigennamen, afkortingen en jargon: juiste schrijfwijze + hint voor de spraakherkenning
     dictionary: list[str] = field(default_factory=list)
     # Vaste correcties van misverstane woorden: "lei dal" -> "Leiedal"
@@ -92,10 +103,22 @@ class Config:
     styles: dict[str, str] = field(default_factory=dict)
 
     @property
-    def meetings_dir(self) -> Path:
+    def default_dir(self) -> Path:
         if self.meeting.output_dir:
             return Path(self.meeting.output_dir).expanduser()
         return Path.home() / "Documents" / "Notetaker"
+
+    @property
+    def meetings_dir(self) -> Path:
+        if self.obsidian.vault:
+            return Path(self.obsidian.vault).expanduser() / self.obsidian.folder
+        return self.default_dir
+
+    @property
+    def audio_dir(self) -> Path:
+        if self.obsidian.vault and not self.obsidian.audio_in_vault:
+            return self.default_dir / "audio"
+        return self.meetings_dir
 
 
 def _fill(dc, data: dict):

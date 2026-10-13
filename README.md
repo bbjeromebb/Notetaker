@@ -29,15 +29,30 @@ De eerste start downloadt het Whisper-model (ongeveer 1,6 GB voor `large-v3-turb
 | Selectie herschrijven | Tekst selecteren, Ctrl+Win+Alt vasthouden, opdracht inspreken ("maak dit formeler") |
 | Annuleren | Esc |
 
+Tijdens het dicteren verschijnt onderaan het scherm een klein opnamevenster met de toestand (luisteren, hands-free, opdracht, verwerken) en het microfoonniveau. Het venster neemt nooit de focus over en laat muisklikken door, zodat de tekst in de juiste app terechtkomt. Uitzetten: `[dictation] overlay = false`.
+
 ```powershell
 notetaker run                         # systeemvak-app: dicteren + vergaderknop
 notetaker meeting --title "Stuurgroep" # opname tot Ctrl+C, verslag in Documenten\Notetaker
 notetaker transcribe opname.m4a --summarize
 notetaker summarize verslag.md
+notetaker vault "C:\Users\naam\Documents\MijnVault"   # verslagen in Obsidian
+notetaker vault                        # huidige en bekende vaults tonen
+notetaker vault --off                  # terug naar Documenten\Notetaker
 notetaker devices                      # audioapparaten tonen
 ```
 
 Een vergadering levert één Markdown-bestand op met samenvatting, besproken punten, beslissingen, actiepunten, open vragen en de volledige transcriptie met tijdstempels, plus een `.wav` van de opname. Tijdens de opname groeit de transcriptie live in hetzelfde bestand.
+
+## Obsidian
+
+Kies de vault via het systeemvak (Verslagen opslaan in > vault) of met `notetaker vault`. Het menu toont de vaults die Obsidian zelf kent; "Andere map kiezen..." opent een mapkiezer. Verslagen komen dan in `<vault>/Vergaderingen` met:
+
+- YAML-frontmatter (`title`, `date`, `time`, `duration`, `type`, `tags`, `audio`), bruikbaar in Dataview en Bases
+- actiepunten als taken (`- [ ] Wat (wie, deadline)`), bruikbaar in de Tasks-plugin
+- de opname buiten de vault in `Documenten\Notetaker\audio`, omdat WAV-bestanden groot zijn en synchronisatie vertragen. Met `audio_in_vault = true` komt de opname naast de notitie en speelt ze af in Obsidian via `![[...]]`.
+
+Map, tags en taakformaat staan onder `[obsidian]` in de configuratie.
 
 ## Configuratie
 

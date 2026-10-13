@@ -39,6 +39,7 @@ summary_chunk_chars = 24000     # langere transcripten worden in delen samengeva
 # summary_model = "gemini-2.5-flash"
 
 [dictation]
+overlay = true                  # opnamevenster onderaan het scherm
 hotkey = "ctrl+cmd"             # vasthouden = praten, dubbeltik = hands-free
 command_hotkey = "ctrl+cmd+alt" # selectie herschrijven op stem
 handsfree_key = "space"
@@ -50,6 +51,14 @@ mic_label = "Ik"
 others_label = "Anderen"
 keep_audio = true
 # output_dir = "C:/Users/naam/Documents/Notetaker"
+
+[obsidian]
+# Verslagen rechtstreeks in een Obsidian-vault. Ook te kiezen via het menu in het systeemvak.
+# vault = "C:/Users/naam/Documents/MijnVault"
+folder = "Vergaderingen"
+tags = ["vergadering"]
+tasks = true            # actiepunten als "- [ ] taak" (werkt met Obsidian Tasks)
+audio_in_vault = false  # true = WAV naast de notitie, ingesloten met ![[...]]
 
 [replacements]
 "lei dal" = "Leiedal"
