@@ -221,7 +221,8 @@ class TrayApp:
         check = threading.Timer(60, self._check_updates_quietly)
         check.daemon = True
         check.start()
-        log.info("Klaar. Houd %s ingedrukt om te dicteren.", display_combo(d.hotkey))
+        log.info("Klaar (versie %s). Houd %s ingedrukt om te dicteren.",
+                 updater.current_version(), display_combo(d.hotkey))
         self.icon.run()
 
     def _check_updates_quietly(self) -> None:

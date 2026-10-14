@@ -91,10 +91,33 @@ def basic_cleanup(text: str) -> str:
     return text
 
 
+def relevant_terms(raw: str, dictionary: list[str]) -> list[str]:
+    """Enkel woordenboektermen die in de transcriptie voorkomen. De volledige lijst meesturen
+    laat kleine modellen bij korte zinnen soms de lijst zelf teruggeven."""
+    return [t for t in dictionary
+            if re.search(r"(?<!\w)" + re.escape(t) + r"(?!\w)", raw, re.IGNORECASE)]
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"\w+", text.lower())
+
+
+def looks_unfaithful(raw: str, output: str) -> bool:
+    """Opkuis mag woorden schrappen, niet verzinnen. Bestaat meer dan de helft van het resultaat
+    uit woorden die niet gedicteerd werden, dan beantwoordde of herhaalde het model iets."""
+    out = _words(output)
+    if not out:
+        return True
+    spoken = set(_words(raw))
+    novel = [w for w in out if w not in spoken]
+    return len(novel) / len(out) > 0.5
+
+
 def build_cleanup_prompt(raw: str, style: str, dictionary: list[str]) -> str:
     parts = [f"Stijl: {STYLE_INSTRUCTIONS.get(style, STYLE_INSTRUCTIONS['default'])}"]
-    if dictionary:
-        parts.append("Schrijf deze termen exact zo: " + ", ".join(dictionary))
+    terms = relevant_terms(raw, dictionary)
+    if terms:
+        parts.append("Deze termen uit de transcriptie schrijf je exact zo: " + ", ".join(terms))
     parts.append(f"<transcript>\n{raw}\n</transcript>")
     return "\n\n".join(parts)
 
@@ -115,6 +138,9 @@ def clean_dictation(raw: str, *, llm: LLM | None, model: str, effort: str, style
                                    model=model, effort=effort, max_tokens=4000)
         except LLMError as e:
             log.warning("LLM-opkuis mislukt, terugval op regels: %s", e)
+        if cleaned and looks_unfaithful(text, cleaned):
+            log.warning("Opkuis week af van het dictee (%r -> %r), terugval op regels.", text, cleaned)
+            cleaned = None
     if not cleaned:
         cleaned = basic_cleanup(text)
     cleaned = restore_snippets(cleaned, mapping)

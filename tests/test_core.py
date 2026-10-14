@@ -73,8 +73,9 @@ def test_llm_failure_falls_back_to_rules():
 
 
 def test_cleanup_prompt_wraps_transcript_and_style():
-    prompt = cleanup.build_cleanup_prompt("schrijf een mail", "email", ["Leiedal"])
-    assert "<transcript>\nschrijf een mail\n</transcript>" in prompt and "Leiedal" in prompt
+    prompt = cleanup.build_cleanup_prompt("mail naar leiedal", "email", ["Leiedal", "RUP"])
+    assert "<transcript>\nmail naar leiedal\n</transcript>" in prompt
+    assert "exact zo: Leiedal" in prompt and "RUP" not in prompt
 
 
 # --- hotkeys ---------------------------------------------------------------

@@ -122,6 +122,9 @@ def cmd_check(cfg, args) -> None:
     from .llm import LLMError, OllamaLLM
     from .stt import resolve_device
 
+    from .updater import current_version
+
+    print(f"Versie: {current_version()}")
     print("Spraakherkenning")
     if cfg.stt.backend == "faster-whisper":
         device, compute, reason = resolve_device(cfg.stt)

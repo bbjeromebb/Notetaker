@@ -44,3 +44,13 @@ def start_update(repo: Path = REPO_ROOT) -> None:
         ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Restart"],
         cwd=str(repo), creationflags=DETACHED | NEW_GROUP | _NO_WINDOW, close_fds=True,
     )
+
+
+def current_version(repo: Path = REPO_ROOT) -> str:
+    """Korte commit en datum, bv. 'a7574db van 2026-10-14 16:29'."""
+    if not is_git_checkout(repo):
+        return "onbekend (geen Git-installatie)"
+    try:
+        return _git(repo, "log", "-1", "--format=%h van %cd", "--date=format:%Y-%m-%d %H:%M")
+    except Exception as e:
+        return f"onbekend ({e})"
