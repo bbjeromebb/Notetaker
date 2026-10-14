@@ -32,26 +32,45 @@ def is_vault(path: Path) -> bool:
     return (Path(path) / ".obsidian").is_dir()
 
 
-def _toml_str(value: str) -> str:
-    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+def _toml_value(value) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def set_toml_value(config_path: Path, section: str, key: str, value) -> None:
+    """Zet één sleutel in een sectie van config.toml; commentaar en overige inhoud blijven staan."""
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    text = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    line = f"{key} = {_toml_value(value)}"
+    key_re = re.compile(rf"(?m)^{re.escape(key)}\s*=.*$")
+    if not section:
+        head_end = re.search(r"(?m)^\[", text)
+        head = text[: head_end.start()] if head_end else text
+        if key_re.search(head):
+            head = key_re.sub(lambda _: line, head, count=1)
+        else:
+            head = line + "\n" + head
+        text = head + (text[head_end.start():] if head_end else "")
+    else:
+        match = re.search(rf"(?ms)^\[{re.escape(section)}\][ \t]*\n(.*?)(?=^\[|\Z)", text)
+        if match is None:
+            text = text.rstrip("\n") + ("\n\n" if text.strip() else "") + f"[{section}]\n{line}\n"
+        else:
+            body = match.group(1)
+            if key_re.search(body):
+                body = key_re.sub(lambda _: line, body, count=1)
+            else:
+                body = line + "\n" + body
+            text = text[: match.start(1)] + body + text[match.end(1):]
+    config_path.write_text(text, encoding="utf-8")
 
 
 def set_vault(config_path: Path, vault: str) -> None:
     """Zet `[obsidian] vault` in config.toml en laat de rest van het bestand ongemoeid."""
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    text = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
-    line = f"vault = {_toml_str(vault)}"
-    section = re.search(r"(?ms)^\[obsidian\][ \t]*\n(.*?)(?=^\[|\Z)", text)
-    if section is None:
-        text = text.rstrip("\n") + ("\n\n" if text.strip() else "") + f"[obsidian]\n{line}\n"
-    else:
-        body = section.group(1)
-        if re.search(r"(?m)^vault\s*=", body):
-            body = re.sub(r"(?m)^vault\s*=.*$", lambda _: line, body, count=1)
-        else:
-            body = line + "\n" + body
-        text = text[: section.start(1)] + body + text[section.end(1):]
-    config_path.write_text(text, encoding="utf-8")
+    set_toml_value(config_path, "obsidian", "vault", vault)
 
 
 def atomic_write_text(path: Path, text: str) -> None:

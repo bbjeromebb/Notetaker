@@ -4,21 +4,32 @@ Dicteren in elke Windows-app en vergaderingen (ook Teams, Zoom of Meet) transcri
 
 ## Installatie (Windows)
 
+Open PowerShell (Windows-toets, typ `powershell`, Enter) en voer uit:
+
+```powershell
+winget install -e --id Git.Git
+# PowerShell sluiten en opnieuw openen, zodat git gekend is
+git clone -b claude/wispr-flow-reverse-engineer-yvswhb https://github.com/bbjeromebb/notetaker.git $HOME\Notetaker
+cd $HOME\Notetaker
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Bij `git clone` vraagt Windows om in te loggen bij GitHub, omdat de repository privé is. Zonder Git: download de branch als ZIP via GitHub, pak uit en start `install.ps1` vanuit die map.
+
+Het script installeert Python 3.12 en Ollama via winget, zet een virtuele omgeving op, installeert de GPU-bibliotheken als er een NVIDIA-kaart is, haalt `gemma3:4b` en `gemma3:12b` op, maakt de configuratie aan, vraagt naar je Obsidian-vault, downloadt het spraakmodel en test de GPU. Daarna maakt het een snelkoppeling in het startmenu en bij het aanmelden, en start het de app. Reken op 15 tot 30 minuten, vooral door ongeveer 11 GB aan modellen.
+
+Bijwerken: `git pull` en het script opnieuw uitvoeren. Opties: `-NoGpu`, `-NoAutostart`, `-SummaryModel gemma3:4b`.
+
+Handmatig installeren:
+
 ```powershell
 py -3.12 -m venv .venv
 .venv\Scripts\activate
-pip install -e .
+pip install -e ".[gpu]"
 notetaker init-config
+ollama pull gemma3:4b
+ollama pull gemma3:12b
 ```
-
-Taalmodel (gratis, lokaal): installeer [Ollama](https://ollama.com) en haal de modellen op:
-
-```powershell
-ollama pull gemma3:4b    # opkuis van dictee, ~3,3 GB
-ollama pull gemma3:12b   # vergaderverslagen, ~8 GB (minder dan 16 GB RAM: gebruik gemma3:4b)
-```
-
-De eerste start downloadt het Whisper-model (ongeveer 1,6 GB voor `large-v3-turbo`). Spraakherkenning en taalmodel draaien allebei lokaal: geen kosten, geen audio of tekst naar buiten.
 
 ### NVIDIA-GPU (bv. GeForce MX550)
 
@@ -50,7 +61,8 @@ notetaker summarize verslag.md
 notetaker vault "C:\Users\naam\Documents\MijnVault"   # verslagen in Obsidian
 notetaker vault                        # huidige en bekende vaults tonen
 notetaker vault --off                  # terug naar Documenten\Notetaker
-notetaker check                        # GPU, Ollama-modellen en opslagmappen controleren
+notetaker check [--load]               # GPU, Ollama-modellen en opslagmappen controleren
+notetaker set llm.num_gpu 0            # één instelling wijzigen
 notetaker devices                      # audioapparaten tonen
 ```
 

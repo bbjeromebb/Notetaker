@@ -29,6 +29,9 @@ gpu = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10"]
 [project.scripts]
 notetaker = "notetaker.__main__:main"
 
+[project.gui-scripts]
+notetaker-app = "notetaker.__main__:run_app"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

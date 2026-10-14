@@ -1,0 +1,20 @@
+from notetaker import config
+from notetaker.__main__ import main, parse_value
+from notetaker.obsidian import set_toml_value
+
+
+def test_parse_value():
+    assert parse_value("true") is True and parse_value("0") == 0 and parse_value("0.5") == 0.5
+    assert parse_value("gemma3:12b") == "gemma3:12b"
+
+
+def test_set_on_example_config_keeps_comments(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text(config.EXAMPLE.read_text(encoding="utf-8"), encoding="utf-8")
+    main(["--config", str(p), "set", "llm.num_gpu", "0"])
+    main(["--config", str(p), "set", "obsidian.audio_in_vault", "true"])
+    set_toml_value(p, "", "dictionary", "x")
+    cfg = config.load(p)
+    assert cfg.llm.num_gpu == 0 and cfg.obsidian.audio_in_vault is True
+    assert cfg.llm.summary_model == "gemma3:12b"
+    assert "# Alternatief 1: Groq" in p.read_text(encoding="utf-8")

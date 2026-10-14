@@ -1,4 +1,4 @@
-"""Opdrachtregel: `notetaker run | meeting | transcribe | summarize | vault | check | init-config | devices`."""
+"""Opdrachtregel: `notetaker run | meeting | transcribe | summarize | vault | check | set | init-config | devices`."""
 from __future__ import annotations
 
 import argparse
@@ -128,6 +128,12 @@ def cmd_check(cfg, args) -> None:
         print(f"  {cfg.stt.model} op {device} ({compute})")
         if reason:
             print(f"  {reason}")
+        if getattr(args, "load", False):
+            from .stt import FasterWhisperTranscriber
+
+            print("  model laden (de eerste keer ongeveer 1,6 GB downloaden)...")
+            loaded = FasterWhisperTranscriber(cfg.stt)
+            print(f"  geladen en getest op: {loaded.device}")
     else:
         print(f"  {cfg.stt.backend}")
     print("Taalmodel")
@@ -149,6 +155,28 @@ def cmd_check(cfg, args) -> None:
           f" ({cfg.meeting.audio_format})")
 
 
+def parse_value(raw: str):
+    low = raw.lower()
+    if low in ("true", "false"):
+        return low == "true"
+    for cast in (int, float):
+        try:
+            return cast(raw)
+        except ValueError:
+            pass
+    return raw
+
+
+def cmd_set(cfg, args) -> None:
+    from .obsidian import set_toml_value
+
+    section, _, key = args.key.rpartition(".")
+    path = args.config or config_mod.default_path()
+    set_toml_value(path, section, key, parse_value(args.value))
+    config_mod.load(path)  # controleert dat het bestand geldig blijft
+    print(f"{args.key} = {args.value}  ({path})")
+
+
 def cmd_init(cfg, args) -> None:
     print(f"Configuratie: {config_mod.write_example()}")
 
@@ -157,6 +185,21 @@ def cmd_devices(cfg, args) -> None:
     import sounddevice as sd
 
     print(sd.query_devices())
+
+
+def run_app() -> None:
+    """Start zonder consolevenster (pythonw / snelkoppeling): logt naar notetaker.log."""
+    log_path = config_mod.app_dir() / "notetaker.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(filename=log_path, level=logging.INFO, encoding="utf-8",
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    try:
+        from .app import TrayApp
+
+        TrayApp(config_mod.load(), config_mod.default_path()).run()
+    except Exception:
+        logging.exception("Notetaker gestopt door een fout")
+        raise
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -181,7 +224,14 @@ def main(argv: list[str] | None = None) -> None:
     v.add_argument("path", nargs="?", help="map van de vault; leeg = huidige en bekende tonen")
     v.add_argument("--off", action="store_true", help="niet meer in Obsidian opslaan")
     v.set_defaults(fn=cmd_vault)
-    sub.add_parser("check", help="GPU, Ollama-modellen en opslag controleren").set_defaults(fn=cmd_check)
+    c = sub.add_parser("check", help="GPU, Ollama-modellen en opslag controleren")
+    c.add_argument("--load", action="store_true",
+                   help="Whisper echt laden (downloadt het model de eerste keer en test de GPU)")
+    c.set_defaults(fn=cmd_check)
+    st = sub.add_parser("set", help="één instelling wijzigen, bv. 'set llm.num_gpu 0'")
+    st.add_argument("key", help="sectie.sleutel")
+    st.add_argument("value")
+    st.set_defaults(fn=cmd_set)
     sub.add_parser("init-config", help="voorbeeldconfiguratie aanmaken").set_defaults(fn=cmd_init)
     sub.add_parser("devices", help="audioapparaten tonen").set_defaults(fn=cmd_devices)
     args = p.parse_args(argv)
