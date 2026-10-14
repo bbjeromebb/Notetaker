@@ -101,6 +101,7 @@ class InboxConfig:
     # weggehaald, andere blijven staan.
     vault_folders: list[str] = field(default_factory=lambda: ["Notetaker", "Opnames"])
     vault_since: str = ""  # oudere opnames worden genegeerd; gezet bij de eerste start
+    vault_since_for: str = ""  # de vault waarvoor vault_since geldt
 
 
 @dataclass

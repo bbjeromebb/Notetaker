@@ -86,7 +86,6 @@ class TrayApp:
                                   on_note=lambda p: self._notify(f"Opname verwerkt: {p.name}"),
                                   config_path=self.config_path)
         self.overlay: Overlay | None = None
-        self._last_vault = cfg.obsidian.vault
 
     def _warmup(self) -> None:
         try:
@@ -145,8 +144,7 @@ class TrayApp:
             self.icon.update_menu()
 
     def choose_vault(self, vault: str) -> None:
-        # Vergeleken met de laatst gebruikte vault: even "Niet in Obsidian" en terug zet niets opnieuw
-        changes = vault_changes(vault, self._last_vault)
+        changes = vault_changes(vault, self.cfg)
         try:
             update_toml(self.config_path, changes)
         except (OSError, ValueError) as e:
@@ -154,7 +152,6 @@ class TrayApp:
             return
         for section, key, value in changes:
             setattr(getattr(self.cfg, section), key, value)
-        self._last_vault = vault or self._last_vault
         self._refresh_menu()
         self._notify(f"Verslagen naar {self.cfg.meetings_dir}")
         try:

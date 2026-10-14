@@ -109,6 +109,7 @@ def test_ensure_vault_since_written_once(tmp_path):
     ensure_vault_since(cfg, p)
     first = cfg.inbox.vault_since
     assert first and config.load(p).inbox.vault_since == first
+    assert config.load(p).inbox.vault_since_for == str(vault)
     ensure_vault_since(cfg, p)
     assert cfg.inbox.vault_since == first
 
@@ -219,11 +220,16 @@ def test_watcher_starts_after_vault_is_chosen(tmp_path):
 
 
 def test_vault_changes_only_reset_for_another_vault(tmp_path):
-    vault = tmp_path / "Vault"
-    vault.mkdir()
-    assert [k for _, k, _ in vault_changes(str(vault), str(vault) + "/")] == ["vault"]
-    assert [k for _, k, _ in vault_changes(str(vault), "")] == ["vault", "vault_since"]
-    assert [k for _, k, _ in vault_changes("", str(vault))] == ["vault"]
+    vault, other = tmp_path / "Vault", tmp_path / "Ander"
+    vault.mkdir(), other.mkdir()
+    cfg = config.Config()
+    cfg.obsidian.vault = str(vault)
+    assert [k for _, k, _ in vault_changes(str(vault) + "/", cfg)] == ["vault"]
+    assert [k for _, k, _ in vault_changes("", cfg)] == ["vault", "vault_since_for"]  # oudere config
+    # Na 'Niet in Obsidian' en een herstart: vault leeg, maar vault_since hoort nog bij deze vault
+    cfg.obsidian.vault, cfg.inbox.vault_since_for = "", str(vault)
+    assert [k for _, k, _ in vault_changes(str(vault), cfg)] == ["vault"]
+    assert [k for _, k, _ in vault_changes(str(other), cfg)] == ["vault", "vault_since", "vault_since_for"]
 
 
 def test_cli_vault_switch_resets_vault_since(tmp_path):
@@ -236,9 +242,13 @@ def test_cli_vault_switch_resets_vault_since(tmp_path):
                  encoding="utf-8")
     main(["--config", str(p), "vault", str(a)])
     assert config.load(p).inbox.vault_since == "2026-01-01T00:00:00"
+    main(["--config", str(p), "vault", "--off"])
+    main(["--config", str(p), "vault", str(a)])  # terug naar dezelfde vault: niets opnieuw
+    assert config.load(p).inbox.vault_since == "2026-01-01T00:00:00"
     main(["--config", str(p), "vault", str(b)])
     cfg = config.load(p)
     assert cfg.obsidian.vault == str(b) and cfg.inbox.vault_since > "2026-01-01T00:00:00"
+    assert cfg.inbox.vault_since_for == str(b)
 
 
 def test_manual_processing_in_separate_inbox_is_consumed(tmp_path):

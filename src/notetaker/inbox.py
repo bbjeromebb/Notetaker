@@ -28,7 +28,7 @@ from .audio import SAMPLE_RATE, load_audio
 from .config import Config, app_dir, default_path
 from .llm import LLM, LLMError
 from .meeting import extract_own_notes, format_transcript, render_note, safe_filename, summarize, transcribe_file
-from .obsidian import atomic_write_text, set_toml_value
+from .obsidian import atomic_write_text, update_toml
 from .stt import Transcriber
 
 log = logging.getLogger(__name__)
@@ -264,21 +264,36 @@ def vault_candidates(cfg: Config, log_: ProcessedLog, min_age: float = 10.0,
 
 
 def ensure_vault_since(cfg: Config, config_path: Path | None = None, reset: bool = False) -> None:
-    """Bij de eerste start en bij een andere vault (reset): oudere opnames niet massaal verwerken."""
-    if cfg.obsidian.vault and (reset or not cfg.inbox.vault_since):
-        cfg.inbox.vault_since = datetime.now().isoformat(timespec="seconds")
+    """Bij de eerste start en bij een andere vault (reset): oudere opnames niet massaal verwerken.
+    Onthoudt ook voor welke vault het tijdstip geldt (oudere configuraties vullen dat hier aan)."""
+    vault = cfg.obsidian.vault
+    if not vault:
+        return
+    changes: list[tuple[str, str, object]] = []
+    if reset or not cfg.inbox.vault_since:
+        changes.append(("inbox", "vault_since", datetime.now().isoformat(timespec="seconds")))
+    if changes or not cfg.inbox.vault_since_for:
+        changes.append(("inbox", "vault_since_for", vault))
+    for _, key, value in changes:  # geldt minstens voor deze sessie
+        setattr(cfg.inbox, key, value)
+    if changes:
         try:
-            set_toml_value(config_path or default_path(), "inbox", "vault_since", cfg.inbox.vault_since)
-        except (OSError, ValueError) as e:  # geldt dan enkel voor deze sessie
+            update_toml(config_path or default_path(), changes)
+        except (OSError, ValueError) as e:
             log.warning("vault_since niet bewaard: %s", e)
 
 
-def vault_changes(new_vault: str, previous_vault: str) -> list[tuple[str, str, object]]:
-    """Config-wijzigingen voor een vaultkeuze. Een andere vault krijgt een nieuwe vault_since, zodat
-    oude opnames daar niet massaal verwerkt worden; dezelfde vault (anders gespeld) niet."""
+def vault_changes(new_vault: str, cfg: Config) -> list[tuple[str, str, object]]:
+    """Config-wijzigingen voor een vaultkeuze. Een andere vault dan die van vault_since krijgt een
+    nieuw tijdstip, zodat oude opnames daar niet massaal verwerkt worden. Dezelfde vault (anders
+    gespeld, of terug na 'Niet in Obsidian', ook na een herstart) houdt het oude."""
     changes: list[tuple[str, str, object]] = [("obsidian", "vault", new_vault)]
-    if new_vault and not same_path(new_vault, previous_vault):
-        changes.append(("inbox", "vault_since", datetime.now().isoformat(timespec="seconds")))
+    previous = cfg.inbox.vault_since_for or cfg.obsidian.vault
+    if new_vault and not same_path(new_vault, previous):
+        changes += [("inbox", "vault_since", datetime.now().isoformat(timespec="seconds")),
+                    ("inbox", "vault_since_for", new_vault)]
+    elif not new_vault and previous and not cfg.inbox.vault_since_for:
+        changes.append(("inbox", "vault_since_for", previous))  # oudere config: niet vergeten
     return changes
 
 

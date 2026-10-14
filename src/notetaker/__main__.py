@@ -104,7 +104,7 @@ def cmd_vault(cfg, args) -> None:
 
     def save(value: str) -> None:
         try:
-            update_toml(path, vault_changes(value, cfg.obsidian.vault))
+            update_toml(path, vault_changes(value, cfg))
         except ValueError as e:
             sys.exit(str(e))
 
