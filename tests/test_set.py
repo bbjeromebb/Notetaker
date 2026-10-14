@@ -27,6 +27,7 @@ def test_parse_value_lists():
     # Windows-paden: backslashes blijven letterlijk, getallen blijven tekst
     assert parse_value('["Notetaker", "Werk\\notulen"]') == ["Notetaker", "Werk\\notulen"]
     assert parse_value("[2026]") == ["2026"]
+    assert parse_value('["Werk, privé", Notetaker, \'Opnames\']') == ["Werk, privé", "Notetaker", "Opnames"]
 
 
 def test_set_list_replaces_multiline_array(tmp_path):
@@ -57,4 +58,27 @@ def test_set_refuses_to_break_config(tmp_path):
 
     with pytest.raises(ValueError):
         set_toml_value(p, "llm", "snippet", "kort")
+    assert p.read_text(encoding="utf-8") == before
+
+
+def test_set_finds_headers_with_comments_and_spaces(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text('[ obsidian ]  # verslagen\n  vault = "C:/oud"\n[inbox]', encoding="utf-8")
+    set_toml_value(p, "obsidian", "vault", "C:/Vault")
+    set_toml_value(p, "inbox", "vault_since", "2026-10-14T10:00:00")
+    cfg = config.load(p)
+    assert cfg.obsidian.vault == "C:/Vault" and cfg.inbox.vault_since == "2026-10-14T10:00:00"
+
+
+def test_apply_choice_is_all_or_nothing(tmp_path):
+    from notetaker import providers
+
+    p = tmp_path / "config.toml"
+    p.write_text('[stt]\nmodel = "small"\n[llm]\nsummary_model = """\nlang\n"""\n', encoding="utf-8")
+    before = p.read_text(encoding="utf-8")
+    import pytest
+
+    with pytest.raises(ValueError):
+        providers.apply_choice(p, stt=providers.STT_LOCAL, whisper_model="medium", llm_provider="ollama",
+                               cleanup_model="gemma3:4b", summary_model="gemma3:12b", vault_folders=["X"])
     assert p.read_text(encoding="utf-8") == before

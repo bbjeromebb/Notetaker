@@ -73,33 +73,38 @@ def _value_end(text: str, pos: int) -> int:
 
 
 def _replace_key(body: str, key: str, line: str) -> str | None:
-    m = re.search(rf"(?m)^{re.escape(key)}[ \t]*=[ \t]*", body)
+    m = re.search(rf"(?m)^[ \t]*{re.escape(key)}[ \t]*=[ \t]*", body)
     if m is None:
         return None
     return body[: m.start()] + line + body[_value_end(body, m.end()):]
 
 
-def set_toml_value(config_path: Path, section: str, key: str, value) -> None:
-    """Zet één sleutel in een sectie van config.toml; commentaar en overige inhoud blijven staan.
-    Zou het bestand ongeldig worden, dan blijft het ongewijzigd en volgt een ValueError."""
-    import tomllib
-
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    old = text = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+def _with_value(text: str, section: str, key: str, value) -> str:
     line = f"{key} = {_toml_value(value)}"
     if not section:
         head_end = re.search(r"(?m)^\[", text)
         head = text[: head_end.start()] if head_end else text
         head = _replace_key(head, key, line) or line + "\n" + head
-        text = head + (text[head_end.start():] if head_end else "")
-    else:
-        match = re.search(rf"(?ms)^\[{re.escape(section)}\][ \t]*\n(.*?)(?=^\[|\Z)", text)
-        if match is None:
-            text = text.rstrip("\n") + ("\n\n" if text.strip() else "") + f"[{section}]\n{line}\n"
-        else:
-            body = match.group(1)
-            body = _replace_key(body, key, line) or line + "\n" + body
-            text = text[: match.start(1)] + body + text[match.end(1):]
+        return head + (text[head_end.start():] if head_end else "")
+    # Ook "[ inbox ]" en "[inbox]  # commentaar" herkennen
+    match = re.search(rf"(?ms)^\[[ \t]*{re.escape(section)}[ \t]*\][ \t]*(?:#[^\n]*)?(?:\n|\Z)(.*?)(?=^\[|\Z)",
+                      text)
+    if match is None:
+        return text.rstrip("\n") + ("\n\n" if text.strip() else "") + f"[{section}]\n{line}\n"
+    before, body = text[: match.start(1)], match.group(1)
+    body = _replace_key(body, key, line) or line + "\n" + body
+    return before + ("" if before.endswith("\n") else "\n") + body + text[match.end(1):]
+
+
+def update_toml(config_path: Path, changes: list[tuple[str, str, object]]) -> None:
+    """Zet sleutels (sectie, sleutel, waarde) in config.toml in één keer; commentaar en overige
+    inhoud blijven staan. Zou het bestand ongeldig worden, dan blijft het ongewijzigd (ValueError)."""
+    import tomllib
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    old = text = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    for section, key, value in changes:
+        text = _with_value(text, section, key, value)
     try:
         tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
@@ -108,9 +113,13 @@ def set_toml_value(config_path: Path, section: str, key: str, value) -> None:
         except tomllib.TOMLDecodeError:
             pass  # was al ongeldig: niet de schuld van deze wijziging
         else:
-            raise ValueError(f"{section + '.' if section else ''}{key} niet aangepast: "
-                             f"{config_path.name} zou ongeldig worden ({e}).") from e
+            names = ", ".join(f"{s + '.' if s else ''}{k}" for s, k, _ in changes)
+            raise ValueError(f"{names} niet aangepast: {config_path.name} zou ongeldig worden ({e}).") from e
     config_path.write_text(text, encoding="utf-8")
+
+
+def set_toml_value(config_path: Path, section: str, key: str, value) -> None:
+    update_toml(config_path, [(section, key, value)])
 
 
 def set_vault(config_path: Path, vault: str) -> None:

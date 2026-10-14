@@ -165,13 +165,39 @@ def test_failed_android_recording_waits_for_user(tmp_path):
     assert process_vault(cfg, FakeTranscriber("x"), None, log_=log_) == []
     marker = audio.with_name(audio.name + ".fout.txt")
     assert marker.exists() and vault_candidates(cfg, log_) == []  # niet elke 15 s opnieuw
-    # Gebruiker vervangt de opname en verwijdert de markering: geslaagd, markering weg
-    marker.unlink()
+    # Met de hand opnieuw verwerken (menu): zoals een gewone telefoonopname, alles verdwijnt
     write_wav(audio, tone(2))
     _age(audio)
-    marker.write_text("oud")
+    note = process_file(cfg, FakeTranscriber("Hallo."), None, audio, log_)
+    assert note.name == "2026-10-14_0930_Kapot.md"
+    assert list((vault / "Opnames").iterdir()) == []  # ook de .fout.txt: telefoon toont 'verwerkt'
+
+
+def test_process_file_keeps_recordings_outside_watched_folders(tmp_path):
+    cfg, vault, log_ = setup(tmp_path)
+    elders = vault / "Elders"
+    elders.mkdir()
+    audio = elders / "2026-10-14_0930_Overleg.wav"
+    write_wav(audio, tone(2))
+    audio.with_suffix(".json").write_text(json.dumps({"title": "Overleg"}))
     process_file(cfg, FakeTranscriber("Hallo."), None, audio, log_)
-    assert not marker.exists()
+    assert audio.exists() and audio.with_suffix(".json").exists()
+
+
+def test_vault_since_survives_unwritable_config_and_resets_for_new_vault(tmp_path):
+    cfg, vault, _ = setup(tmp_path)
+    p = tmp_path / "config.toml"
+    p.write_text('[llm]\nx = """\nmeerdere\n"""\n[inbox]   # telefoon\nvault_folders = ["Notetaker"]\n',
+                 encoding="utf-8")
+    ensure_vault_since(cfg, p)  # header met commentaar: gewoon bewaard
+    assert config.load(p).inbox.vault_since == cfg.inbox.vault_since
+    cfg.inbox.vault_since = "2026-01-01T00:00:00"
+    ensure_vault_since(cfg, p, reset=True)
+    assert cfg.inbox.vault_since > "2026-01-01T00:00:00"
+    p.write_text("[inbox\n", encoding="utf-8")  # al ongeldig
+    cfg.inbox.vault_since = ""
+    ensure_vault_since(cfg, p)  # geen uitzondering, enkel een waarschuwing
+    assert cfg.inbox.vault_since
 
 
 def test_watcher_starts_after_vault_is_chosen(tmp_path):

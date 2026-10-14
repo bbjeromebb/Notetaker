@@ -259,13 +259,13 @@ def vault_candidates(cfg: Config, log_: ProcessedLog, min_age: float = 10.0,
     return sorted(out)
 
 
-def ensure_vault_since(cfg: Config, config_path: Path | None = None) -> None:
-    """Bij de eerste start: oudere opnames in de vault niet massaal verwerken."""
-    if cfg.obsidian.vault and not cfg.inbox.vault_since:
+def ensure_vault_since(cfg: Config, config_path: Path | None = None, reset: bool = False) -> None:
+    """Bij de eerste start en bij een andere vault (reset): oudere opnames niet massaal verwerken."""
+    if cfg.obsidian.vault and (reset or not cfg.inbox.vault_since):
         cfg.inbox.vault_since = datetime.now().isoformat(timespec="seconds")
         try:
             set_toml_value(config_path or default_path(), "inbox", "vault_since", cfg.inbox.vault_since)
-        except OSError as e:
+        except (OSError, ValueError) as e:  # geldt dan enkel voor deze sessie
             log.warning("vault_since niet bewaard: %s", e)
 
 
@@ -288,7 +288,7 @@ def recording_for(cfg: Config, audio: Path) -> Recording:
 # --- verwerken -------------------------------------------------------------------------
 
 def process(cfg: Config, transcriber: Transcriber, llm: LLM | None, rec: Recording) -> Path:
-    marker = _failed_marker(rec.audio)  # vroeger mislukt: weg na een geslaagde poging
+    marker = _failed_marker(rec.audio)
     audio = load_audio(rec.audio)
     duration = audio.size / SAMPLE_RATE
     segments = transcribe_file(cfg, transcriber, audio, speaker=cfg.meeting.mic_label)
@@ -320,8 +320,7 @@ def process(cfg: Config, transcriber: Transcriber, llm: LLM | None, rec: Recordi
             cfg, rec.title, rec.started, duration, summary, transcript, own_notes=rec.own_notes,
             vault_audio=rec.audio.relative_to(vault).as_posix() if in_vault else "",
             external_audio="" if in_vault else str(rec.audio), source_note=rec.source_note))
-        marker.unlink(missing_ok=True)
-        return note
+        return note  # een .fout.txt blijft: de opname blijft immers ook staan
 
     audio_target = None
     if cfg.meeting.keep_audio:
@@ -336,7 +335,7 @@ def process(cfg: Config, transcriber: Transcriber, llm: LLM | None, rec: Recordi
         rec.audio.unlink()
     if rec.sidecar is not None:
         rec.sidecar.unlink(missing_ok=True)
-    marker.unlink(missing_ok=True)
+    marker.unlink(missing_ok=True)  # de opname is weg, dus ook een oude foutmelding
     return note
 
 
@@ -386,10 +385,28 @@ def process_vault(cfg: Config, transcriber: Transcriber, llm: LLM | None, min_ag
     return notes
 
 
+def _norm(path: Path) -> str:
+    return os.path.normcase(os.path.abspath(Path(path).expanduser()))
+
+
+def in_watched_folder(cfg: Config, audio: Path) -> bool:
+    """Staat de opname in de aparte inbox of in een opgevolgde vaultmap (niet in de verslagenmap)?"""
+    here = _norm(audio)
+    own = _norm(cfg.meetings_dir)
+    if here.startswith(own + os.sep):
+        return False
+    folders = [Path(cfg.inbox.folder)] if cfg.inbox.folder else []
+    folders += vault_audio_folders(cfg)
+    return any(here.startswith(_norm(f) + os.sep) for f in folders)
+
+
 def process_file(cfg: Config, transcriber: Transcriber, llm: LLM | None, audio: Path,
                  log_: ProcessedLog | None = None) -> Path:
-    """Eén gekozen bestand verwerken; het blijft altijd staan."""
+    """Eén gekozen bestand verwerken. Een telefoonopname (met .json) in de inbox of een opnamemap
+    wordt verwerkt en weggehaald zoals altijd, ook na een fout; al de rest blijft staan."""
     rec = recording_for(cfg, audio)
+    if rec.sidecar is not None and in_watched_folder(cfg, audio):
+        return process(cfg, transcriber, llm, rec)
     rec.in_place, rec.sidecar = True, None
     note = process(cfg, transcriber, llm, rec)
     (log_ or ProcessedLog()).mark(audio, note=str(note))

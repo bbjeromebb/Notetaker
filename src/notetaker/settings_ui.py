@@ -198,14 +198,15 @@ class SettingsWindow:
                 box.configure(values=models)
 
     def _save(self) -> None:
-        for provider, var in self.key_vars.items():
-            value = var.get()
-            if value == " ":
-                set_key(provider, "")
-            elif value.strip():
-                set_key(provider, value.strip())
         folders = parse_folders(self.vault_folders.get())
+        unchanged = folders == parse_folders(", ".join(self.loaded_folders))
         try:
+            for provider, var in self.key_vars.items():
+                value = var.get()
+                if value == " ":
+                    set_key(provider, "")
+                elif value.strip():
+                    set_key(provider, value.strip())
             apply_choice(
                 self.config_path,
                 stt=self._key_of(self.stt.get(), self.stt_labels),
@@ -213,9 +214,9 @@ class SettingsWindow:
                 llm_provider=self._provider_key(),
                 cleanup_model=self.cleanup.get(),
                 summary_model=self.summary.get(),
-                vault_folders=None if folders == self.loaded_folders else folders,
+                vault_folders=None if unchanged else folders,
             )
-        except (OSError, ValueError) as e:
+        except Exception as e:  # kluis, schijf of ongeldige config: melden in plaats van stil falen
             from tkinter import messagebox
 
             messagebox.showerror("Notetaker", f"Instellingen niet bewaard: {e}", parent=self.win)

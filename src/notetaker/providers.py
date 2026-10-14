@@ -123,31 +123,27 @@ def parse_folders(text: str) -> list[str]:
 def apply_choice(config_path: Path, *, stt: str, whisper_model: str, llm_provider: str,
                  cleanup_model: str, summary_model: str, vault_folders: list[str] | None = None) -> None:
     """Schrijft een keuze uit het instellingenvenster naar config.toml (rest blijft staan)."""
-    from .obsidian import set_toml_value
+    from .obsidian import update_toml
 
+    changes: list[tuple[str, str, object]] = []
     if vault_folders is not None:
-        set_toml_value(config_path, "inbox", "vault_folders", vault_folders)
-
+        changes.append(("inbox", "vault_folders", vault_folders))
     if stt == STT_LOCAL:
-        set_toml_value(config_path, "stt", "backend", "faster-whisper")
-        set_toml_value(config_path, "stt", "model", whisper_model)
+        changes += [("stt", "backend", "faster-whisper"), ("stt", "model", whisper_model)]
     else:
         p = PROVIDERS[stt]
-        set_toml_value(config_path, "stt", "backend", "openai-api")
-        set_toml_value(config_path, "stt", "provider", p.key)
-        set_toml_value(config_path, "stt", "api_base", p.api_base)
-        set_toml_value(config_path, "stt", "api_model", p.stt_model)
-        set_toml_value(config_path, "stt", "api_key_env", p.env)
+        changes += [("stt", "backend", "openai-api"), ("stt", "provider", p.key),
+                    ("stt", "api_base", p.api_base), ("stt", "api_model", p.stt_model),
+                    ("stt", "api_key_env", p.env)]
 
     p = PROVIDERS[llm_provider]
-    set_toml_value(config_path, "llm", "provider", p.key)
-    set_toml_value(config_path, "llm", "backend", p.backend)
+    changes += [("llm", "provider", p.key), ("llm", "backend", p.backend)]
     if p.backend == "openai-compatible":
-        set_toml_value(config_path, "llm", "api_base", p.api_base)
-        set_toml_value(config_path, "llm", "api_key_env", p.env)
+        changes += [("llm", "api_base", p.api_base), ("llm", "api_key_env", p.env)]
     if p.backend != "none":
-        set_toml_value(config_path, "llm", "cleanup_model", cleanup_model.strip())
-        set_toml_value(config_path, "llm", "summary_model", summary_model.strip())
+        changes += [("llm", "cleanup_model", cleanup_model.strip()),
+                    ("llm", "summary_model", summary_model.strip())]
+    update_toml(config_path, changes)  # alles of niets
 
 
 def list_models(provider: str, cfg_llm) -> list[str]:

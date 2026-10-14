@@ -18,7 +18,7 @@ from .llm import build_llm
 from .meeting import MeetingRecorder
 from .obsidian import is_vault, known_vaults, set_vault
 from .overlay import Overlay, UiThread
-from .inbox import InboxWatcher, folder_warning
+from .inbox import InboxWatcher, ensure_vault_since, folder_warning
 from .stt import SerializedTranscriber, build_transcriber
 from . import updater
 
@@ -144,11 +144,21 @@ class TrayApp:
             self.icon.update_menu()
 
     def choose_vault(self, vault: str) -> None:
-        set_vault(self.config_path, vault)
+        try:
+            set_vault(self.config_path, vault)
+        except (OSError, ValueError) as e:
+            self._notify(f"Vault niet gewijzigd: {e}")
+            return
+        changed = vault != self.cfg.obsidian.vault
         self.cfg.obsidian.vault = vault
         self._refresh_menu()
         self._notify(f"Verslagen naar {self.cfg.meetings_dir}")
-        self.inbox.start()  # opnamemap aanmaken en opvolgen, ook als er bij de start geen vault was
+        if changed:  # oudere opnames in een andere vault niet massaal verwerken
+            ensure_vault_since(self.cfg, self.config_path, reset=True)
+        try:
+            self.inbox.start()  # opnamemap aanmaken en opvolgen, ook als er bij de start geen vault was
+        except Exception:
+            log.exception("Opvolgen van opnames starten mislukt")
         self._warn_folders()
 
     def _warn_folders(self) -> None:

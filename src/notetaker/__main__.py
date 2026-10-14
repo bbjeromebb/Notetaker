@@ -100,8 +100,15 @@ def cmd_vault(cfg, args) -> None:
     from .obsidian import is_vault, known_vaults, set_vault
 
     path = args.config or config_mod.default_path()
+
+    def save(value: str) -> None:
+        try:
+            set_vault(path, value)
+        except ValueError as e:
+            sys.exit(str(e))
+
     if args.off:
-        set_vault(path, "")
+        save("")
         print("Verslagen gaan weer naar", cfg.default_dir)
         return
     if not args.path:
@@ -114,7 +121,7 @@ def cmd_vault(cfg, args) -> None:
         sys.exit(f"Map bestaat niet: {vault}")
     if not is_vault(vault):
         print(f"Let op: {vault} bevat geen .obsidian-map. Open ze eerst als vault in Obsidian.")
-    set_vault(path, str(vault))
+    save(str(vault))
     print(f"Verslagen gaan voortaan naar {vault / cfg.obsidian.folder}")
 
 
@@ -254,9 +261,9 @@ def parse_value(raw: str):
     if text.startswith("[") and text.endswith("]"):
         # Lijst van teksten: ["Notetaker", "Opnames"] of [Notetaker, Opnames] (PowerShell laat de
         # aanhalingstekens soms vallen). Geen JSON: backslashes in Windows-paden blijven letterlijk.
-        items = [v.strip() for v in text[1:-1].split(",")]
-        items = [v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v for v in items]
-        return [v for v in items if v]
+        # Komma's binnen aanhalingstekens horen bij het element: ["Werk, privé", "Notetaker"]
+        items = re.findall(r'"([^"]*)"|\'([^\']*)\'|([^,\s"\'][^,]*)', text[1:-1])
+        return [v for v in ("".join(m).strip() for m in items) if v]
     low = raw.lower()
     if low in ("true", "false"):
         return low == "true"
