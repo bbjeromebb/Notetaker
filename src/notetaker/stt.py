@@ -29,7 +29,7 @@ class Segment:
 
 
 class Transcriber(Protocol):
-    def transcribe(self, audio: np.ndarray, prompt: str = "") -> list[Segment]: ...
+    def transcribe(self, audio: np.ndarray, prompt: str = "", vad: bool = True) -> list[Segment]: ...
 
 
 def vocab_prompt(words: list[str], max_chars: int = 600) -> str:
@@ -43,6 +43,51 @@ def vocab_prompt(words: list[str], max_chars: int = 600) -> str:
             break
         out = candidate
     return f"Woordenlijst: {out}."
+
+
+# Wat Whisper verzint bij stilte of ruis: ondertitels uit de trainingsdata.
+# Enkel volledige zinnen of onmiskenbare kenmerken, zodat een echt dictee niet sneuvelt.
+HALLUCINATION_SENTENCES = {
+    "bedankt voor het kijken", "bedankt voor het luisteren", "bedankt om te kijken",
+    "tot de volgende keer", "ondertiteling", "tv gelderland", "abonneer op het kanaal",
+    "thanks for watching", "thank you for watching",
+}
+HALLUCINATION_MARKERS = ("amara org", "ondertiteld door", "ondertitels ingediend door",
+                         "ondertiteling tv gelderland", "subtitles by")
+
+
+def _words(text: str) -> list[str]:
+    import re
+
+    return re.findall(r"\w+", text.lower())
+
+
+def is_prompt_echo(text: str, prompt: str) -> bool:
+    """Whisper herhaalt bij korte of stille opnames soms de prompt in plaats van te transcriberen."""
+    if not prompt:
+        return False
+    words = [w for w in _words(text) if w != "woordenlijst"]
+    vocab = set(_words(prompt))
+    return bool(words) and all(w in vocab for w in words)
+
+
+def is_hallucination(text: str) -> bool:
+    joined = " ".join(_words(text))
+    return joined in HALLUCINATION_SENTENCES or any(m in joined for m in HALLUCINATION_MARKERS)
+
+
+def filter_segments(segments: list, prompt: str) -> list:
+    """Verwijdert herhaalde prompttekst, bekende verzinsels en wat Whisper zelf als stilte inschat."""
+    out = []
+    for s in segments:
+        text = s.text.strip()
+        if not text or is_prompt_echo(text, prompt) or is_hallucination(text):
+            continue
+        # Whispers eigen regel: waarschijnlijk geen spraak en weinig zekerheid over de tekst
+        if getattr(s, "no_speech_prob", 0.0) > 0.6 and getattr(s, "avg_logprob", 0.0) < -1.0:
+            continue
+        out.append(s)
+    return out
 
 
 def add_nvidia_dll_dirs() -> list[str]:
@@ -121,12 +166,22 @@ class FasterWhisperTranscriber:
             self.device = "cpu"
             self.model = WhisperModel(cfg.model, device="cpu", compute_type="int8")
 
-    def transcribe(self, audio: np.ndarray, prompt: str = "") -> list[Segment]:
+    def _run(self, audio: np.ndarray, prompt: str, vad: bool) -> list:
         segments, _ = self.model.transcribe(
             audio, language=self.language, initial_prompt=prompt or None,
-            vad_filter=True, beam_size=5, condition_on_previous_text=False,
+            vad_filter=vad, beam_size=5, condition_on_previous_text=False,
         )
-        return [Segment(s.start, s.end, s.text.strip()) for s in segments if s.text.strip()]
+        return list(segments)
+
+    def transcribe(self, audio: np.ndarray, prompt: str = "", vad: bool = True) -> list[Segment]:
+        """vad=False voor dicteren: de gebruiker bepaalt begin en einde met de sneltoets, en de
+        stiltedetectie knipt korte zinnen anders soms volledig weg."""
+        raw = self._run(audio, prompt, vad)
+        kept = filter_segments(raw, prompt)
+        if not kept and prompt and raw:
+            # Enkel de woordenlijst teruggekregen: opnieuw zonder prompt
+            kept = filter_segments(self._run(audio, "", vad), "")
+        return [Segment(s.start, s.end, s.text.strip()) for s in kept]
 
 
 class OpenAICompatibleTranscriber:
@@ -140,7 +195,14 @@ class OpenAICompatibleTranscriber:
         self.model = cfg.api_model
         self.language = cfg.language
 
-    def transcribe(self, audio: np.ndarray, prompt: str = "") -> list[Segment]:
+    def transcribe(self, audio: np.ndarray, prompt: str = "", vad: bool = True) -> list[Segment]:
+        segs = self._transcribe(audio, prompt)
+        kept = filter_segments(segs, prompt)
+        if not kept and prompt and segs:
+            kept = filter_segments(self._transcribe(audio, ""), "")
+        return kept
+
+    def _transcribe(self, audio: np.ndarray, prompt: str) -> list[Segment]:
         buf = io.BytesIO()
         write_wav(buf, audio)  # wave accepteert file-achtige objecten
         buf.seek(0)
@@ -176,9 +238,9 @@ class SerializedTranscriber:
     def device(self) -> str:
         return getattr(self.inner, "device", "")
 
-    def transcribe(self, audio: np.ndarray, prompt: str = "") -> list[Segment]:
+    def transcribe(self, audio: np.ndarray, prompt: str = "", **kwargs) -> list[Segment]:
         with self._lock:
-            return self.inner.transcribe(audio, prompt)
+            return self.inner.transcribe(audio, prompt, **kwargs)
 
 
 def transcribe_chunked(transcriber: Transcriber, audio: np.ndarray, prompt: str = "",

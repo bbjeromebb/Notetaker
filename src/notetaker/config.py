@@ -59,6 +59,7 @@ class DictationConfig:
     tap_max_seconds: float = 0.3
     double_tap_window: float = 0.4
     min_seconds: float = 0.4
+    tail_seconds: float = 0.25  # opname loopt nog even door na het loslaten
     silence_rms: float = 0.004
     paste_delay: float = 0.12
     sounds: bool = True

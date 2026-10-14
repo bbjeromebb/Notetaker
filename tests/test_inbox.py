@@ -84,7 +84,7 @@ def test_transcribe_chunked_offsets():
         def __init__(self):
             self.sizes = []
 
-        def transcribe(self, audio, prompt=""):
+        def transcribe(self, audio, prompt="", **kwargs):
             self.sizes.append(audio.size)
             return [Segment(0.5, 1.0, f"stuk{len(self.sizes)}")]
 

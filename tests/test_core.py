@@ -30,7 +30,7 @@ class FakeTranscriber:
     def __init__(self, text):
         self.text = text
 
-    def transcribe(self, audio, prompt=""):
+    def transcribe(self, audio, prompt="", **kwargs):
         return [Segment(0.0, audio.size / SAMPLE_RATE, self.text)] if self.text else []
 
 

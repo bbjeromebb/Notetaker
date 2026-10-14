@@ -67,6 +67,8 @@ class DictationEngine:
                 if self.mode is None:
                     return
                 mode, self.mode = self.mode, None
+                # Nog even doorlopen: wie loslaat tijdens het laatste woord, verliest het anders
+                time.sleep(self.cfg.dictation.tail_seconds)
                 audio = self.hooks.stop_recording()
                 self.hooks.on_state("processing")
                 try:
@@ -80,7 +82,7 @@ class DictationEngine:
             log.info("Opname te kort of stil, genegeerd.")
             return ""
         t0 = time.perf_counter()
-        segments = self.transcriber.transcribe(audio, prompt=vocab_prompt(self.cfg.dictionary))
+        segments = self.transcriber.transcribe(audio, prompt=vocab_prompt(self.cfg.dictionary), vad=False)
         raw = " ".join(s.text for s in segments).strip()
         if not raw:
             return ""
