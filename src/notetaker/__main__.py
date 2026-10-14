@@ -97,13 +97,14 @@ def cmd_summarize(cfg, args) -> None:
 
 
 def cmd_vault(cfg, args) -> None:
-    from .obsidian import is_vault, known_vaults, set_vault
+    from .inbox import vault_changes
+    from .obsidian import is_vault, known_vaults, update_toml
 
     path = args.config or config_mod.default_path()
 
     def save(value: str) -> None:
         try:
-            set_vault(path, value)
+            update_toml(path, vault_changes(value, cfg.obsidian.vault))
         except ValueError as e:
             sys.exit(str(e))
 

@@ -5,9 +5,9 @@ from datetime import datetime
 
 from notetaker import config
 from notetaker.audio import write_wav
-from notetaker.inbox import (InboxWatcher, ProcessedLog, ensure_vault_folder, ensure_vault_since,
-                             folder_warning, pending, process_file, process_vault, started_from_name,
-                             vault_audio_folders, vault_candidates)
+from notetaker.inbox import (InboxWatcher, ProcessedLog, consumed_by_watcher, ensure_vault_folder,
+                             ensure_vault_since, folder_warning, pending, process_file, process_vault,
+                             started_from_name, vault_audio_folders, vault_candidates, vault_changes)
 
 from test_core import FakeLLM, FakeTranscriber, tone
 
@@ -216,3 +216,61 @@ def test_watcher_starts_after_vault_is_chosen(tmp_path):
     w.start()
     assert w._thread is thread  # geen tweede lus
     w.stop()
+
+
+def test_vault_changes_only_reset_for_another_vault(tmp_path):
+    vault = tmp_path / "Vault"
+    vault.mkdir()
+    assert [k for _, k, _ in vault_changes(str(vault), str(vault) + "/")] == ["vault"]
+    assert [k for _, k, _ in vault_changes(str(vault), "")] == ["vault", "vault_since"]
+    assert [k for _, k, _ in vault_changes("", str(vault))] == ["vault"]
+
+
+def test_cli_vault_switch_resets_vault_since(tmp_path):
+    from notetaker.__main__ import main
+
+    a, b = tmp_path / "A", tmp_path / "B"
+    a.mkdir(), b.mkdir()
+    p = tmp_path / "config.toml"
+    p.write_text(f'[obsidian]\nvault = "{a.as_posix()}"\n[inbox]\nvault_since = "2026-01-01T00:00:00"\n',
+                 encoding="utf-8")
+    main(["--config", str(p), "vault", str(a)])
+    assert config.load(p).inbox.vault_since == "2026-01-01T00:00:00"
+    main(["--config", str(p), "vault", str(b)])
+    cfg = config.load(p)
+    assert cfg.obsidian.vault == str(b) and cfg.inbox.vault_since > "2026-01-01T00:00:00"
+
+
+def test_manual_processing_in_separate_inbox_is_consumed(tmp_path):
+    cfg, vault, log_ = setup(tmp_path)
+    inbox = tmp_path / "Inbox"
+    inbox.mkdir()
+    cfg.inbox.folder = str(inbox)
+    audio = inbox / "dictafoon.wav"  # zonder .json: de opvolging zou ze ook weghalen
+    write_wav(audio, tone(2))
+    assert consumed_by_watcher(cfg, audio)
+    process_file(cfg, FakeTranscriber("Hallo."), None, audio, log_)
+    assert not audio.exists() and pending(inbox, min_age=0) == []
+
+
+class RacingTranscriber(FakeTranscriber):
+    """Een ander proces haalt de opname weg terwijl deze nog getranscribeerd wordt."""
+
+    def __init__(self, text, victim):
+        super().__init__(text)
+        self.victim = victim
+
+    def transcribe(self, audio, prompt="", **kwargs):
+        self.victim.unlink(missing_ok=True)
+        return super().transcribe(audio, prompt, **kwargs)
+
+
+def test_recording_taken_by_another_process_gives_no_duplicate(tmp_path):
+    cfg, vault, log_ = setup(tmp_path)
+    audio = vault / "Opnames" / "2026-10-14_0930_Werf.wav"
+    write_wav(audio, tone(2))
+    audio.with_suffix(".json").write_text(json.dumps({"title": "Werf"}))
+    _age(audio)
+    assert process_vault(cfg, RacingTranscriber("x", audio), None, log_=log_) == []
+    assert not (vault / "Vergaderingen").exists() or list((vault / "Vergaderingen").glob("*.md")) == []
+    assert not audio.with_name(audio.name + ".fout.txt").exists()

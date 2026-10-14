@@ -82,3 +82,23 @@ def test_apply_choice_is_all_or_nothing(tmp_path):
         providers.apply_choice(p, stt=providers.STT_LOCAL, whisper_model="medium", llm_provider="ollama",
                                cleanup_model="gemma3:4b", summary_model="gemma3:12b", vault_folders=["X"])
     assert p.read_text(encoding="utf-8") == before
+
+
+def test_set_with_indented_next_table_hits_the_right_table(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text('[stt]\nmodel = "small"\n    [llm]\n    api_base = "https://gemini"\n', encoding="utf-8")
+    main(["--config", str(p), "set", "stt.api_base", "https://openai"])
+    cfg = config.load(p)
+    assert cfg.stt.api_base == "https://openai" and cfg.llm.api_base == "https://gemini"
+
+
+def test_set_refuses_when_a_wrong_line_would_change(tmp_path):
+    import pytest
+
+    p = tmp_path / "config.toml"
+    p.write_text('[snippets]\nmail = """\nBeste,\n  groet = "x"\n"""\ngroet = "Met vriendelijke groeten"\n',
+                 encoding="utf-8")
+    before = p.read_text(encoding="utf-8")
+    with pytest.raises(ValueError):
+        set_toml_value(p, "snippets", "groet", "Groeten")
+    assert p.read_text(encoding="utf-8") == before

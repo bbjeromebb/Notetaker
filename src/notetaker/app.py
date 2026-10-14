@@ -16,9 +16,9 @@ from .hotkey import ChordState, HotkeyListener, display_combo, parse_combo
 from .inserter import copy_selection, paste_text
 from .llm import build_llm
 from .meeting import MeetingRecorder
-from .obsidian import is_vault, known_vaults, set_vault
+from .obsidian import is_vault, known_vaults, update_toml
 from .overlay import Overlay, UiThread
-from .inbox import InboxWatcher, ensure_vault_since, folder_warning
+from .inbox import InboxWatcher, folder_warning, vault_changes
 from .stt import SerializedTranscriber, build_transcriber
 from . import updater
 
@@ -86,6 +86,7 @@ class TrayApp:
                                   on_note=lambda p: self._notify(f"Opname verwerkt: {p.name}"),
                                   config_path=self.config_path)
         self.overlay: Overlay | None = None
+        self._last_vault = cfg.obsidian.vault
 
     def _warmup(self) -> None:
         try:
@@ -144,17 +145,18 @@ class TrayApp:
             self.icon.update_menu()
 
     def choose_vault(self, vault: str) -> None:
+        # Vergeleken met de laatst gebruikte vault: even "Niet in Obsidian" en terug zet niets opnieuw
+        changes = vault_changes(vault, self._last_vault)
         try:
-            set_vault(self.config_path, vault)
+            update_toml(self.config_path, changes)
         except (OSError, ValueError) as e:
             self._notify(f"Vault niet gewijzigd: {e}")
             return
-        changed = vault != self.cfg.obsidian.vault
-        self.cfg.obsidian.vault = vault
+        for section, key, value in changes:
+            setattr(getattr(self.cfg, section), key, value)
+        self._last_vault = vault or self._last_vault
         self._refresh_menu()
         self._notify(f"Verslagen naar {self.cfg.meetings_dir}")
-        if changed:  # oudere opnames in een andere vault niet massaal verwerken
-            ensure_vault_since(self.cfg, self.config_path, reset=True)
         try:
             self.inbox.start()  # opnamemap aanmaken en opvolgen, ook als er bij de start geen vault was
         except Exception:
@@ -251,7 +253,8 @@ class TrayApp:
         self.icon.run()
 
     def process_recording(self) -> None:
-        """Een gekozen geluidsbestand transcriberen en samenvatten; het bestand blijft staan."""
+        """Een gekozen geluidsbestand transcriberen en samenvatten. Het blijft staan, behalve een
+        telefoonopname in een opgevolgde map: die wordt zoals altijd weggehaald."""
         from .inbox import process_file
 
         start = self.cfg.obsidian.vault or str(self.cfg.default_dir)

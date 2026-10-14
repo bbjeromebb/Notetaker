@@ -45,6 +45,10 @@ def _skip_name(name: str) -> bool:
     return name.startswith(".") or CONFLICT_MARK in name
 
 
+class AlreadyProcessed(Exception):
+    """Een ander proces (bv. 'notetaker inbox --file' naast de app) haalde de opname al weg."""
+
+
 @dataclass
 class Recording:
     audio: Path
@@ -269,6 +273,15 @@ def ensure_vault_since(cfg: Config, config_path: Path | None = None, reset: bool
             log.warning("vault_since niet bewaard: %s", e)
 
 
+def vault_changes(new_vault: str, previous_vault: str) -> list[tuple[str, str, object]]:
+    """Config-wijzigingen voor een vaultkeuze. Een andere vault krijgt een nieuwe vault_since, zodat
+    oude opnames daar niet massaal verwerkt worden; dezelfde vault (anders gespeld) niet."""
+    changes: list[tuple[str, str, object]] = [("obsidian", "vault", new_vault)]
+    if new_vault and not same_path(new_vault, previous_vault):
+        changes.append(("inbox", "vault_since", datetime.now().isoformat(timespec="seconds")))
+    return changes
+
+
 def recording_for(cfg: Config, audio: Path) -> Recording:
     """Recording voor een bestand: Android-opname (met .json) of een opname die blijft staan."""
     rec = read_recording(audio)
@@ -305,6 +318,8 @@ def process(cfg: Config, transcriber: Transcriber, llm: LLM | None, rec: Recordi
             log.error("Samenvatting mislukt: %s", e)
             summary = f"_Samenvatting mislukt: {e}. Gebruik later 'notetaker summarize'._"
 
+    if not rec.in_place and not rec.audio.exists():
+        raise AlreadyProcessed(rec.audio.name)
     stem = f"{rec.started:%Y-%m-%d_%H%M}_{safe_filename(rec.title)}"
     cfg.meetings_dir.mkdir(parents=True, exist_ok=True)
     note = cfg.meetings_dir / f"{stem}.md"
@@ -356,6 +371,8 @@ def process_folder(cfg: Config, transcriber: Transcriber, llm: LLM | None,
         log.info("Telefoonopname verwerken: %s", audio.name)
         try:
             notes.append(process(cfg, transcriber, llm, rec))
+        except AlreadyProcessed:
+            log.info("%s werd intussen elders verwerkt", audio.name)
         except Exception as e:  # één kapotte opname mag de rest niet blokkeren
             log.exception("Verwerken van %s mislukt", audio.name)
             _mark_failed(audio, e)
@@ -372,6 +389,9 @@ def process_vault(cfg: Config, transcriber: Transcriber, llm: LLM | None, min_ag
         log.info("Opname uit de vault verwerken: %s", audio.name)
         try:
             note = process(cfg, transcriber, llm, rec)
+        except AlreadyProcessed:
+            log.info("%s werd intussen elders verwerkt", audio.name)
+            continue
         except Exception as e:
             log.exception("Verwerken van %s mislukt", audio.name)
             if rec.in_place:
@@ -385,28 +405,42 @@ def process_vault(cfg: Config, transcriber: Transcriber, llm: LLM | None, min_ag
     return notes
 
 
-def _norm(path: Path) -> str:
-    return os.path.normcase(os.path.abspath(Path(path).expanduser()))
+def _norm(path) -> str:
+    """Vergelijkbaar pad: symlinks, junctions en hoofdletters (Windows) gelijkgetrokken."""
+    p = os.path.expanduser(str(path))
+    try:
+        p = os.path.realpath(p)
+    except OSError:
+        p = os.path.abspath(p)
+    return os.path.normcase(p).rstrip("\\/") or os.sep
 
 
-def in_watched_folder(cfg: Config, audio: Path) -> bool:
-    """Staat de opname in de aparte inbox of in een opgevolgde vaultmap (niet in de verslagenmap)?"""
-    here = _norm(audio)
-    own = _norm(cfg.meetings_dir)
-    if here.startswith(own + os.sep):
+def same_path(a, b) -> bool:
+    return bool(a) and bool(b) and _norm(a) == _norm(b)
+
+
+def _inside(path, folder) -> bool:
+    root = _norm(folder)
+    return _norm(path).startswith(root if root.endswith(os.sep) else root + os.sep)
+
+
+def consumed_by_watcher(cfg: Config, audio: Path) -> bool:
+    """Zou de opvolging deze opname verwerken én weghalen? Alles rechtstreeks in de aparte inbox,
+    en telefoonopnames (met .json) in een opgevolgde vaultmap buiten de verslagenmap."""
+    if cfg.inbox.folder and same_path(audio.parent, cfg.inbox.folder):
+        return True
+    if not audio.with_suffix(".json").exists() or _inside(audio, cfg.meetings_dir):
         return False
-    folders = [Path(cfg.inbox.folder)] if cfg.inbox.folder else []
-    folders += vault_audio_folders(cfg)
-    return any(here.startswith(_norm(f) + os.sep) for f in folders)
+    return any(_inside(audio, f) for f in vault_audio_folders(cfg))
 
 
 def process_file(cfg: Config, transcriber: Transcriber, llm: LLM | None, audio: Path,
                  log_: ProcessedLog | None = None) -> Path:
-    """Eén gekozen bestand verwerken. Een telefoonopname (met .json) in de inbox of een opnamemap
-    wordt verwerkt en weggehaald zoals altijd, ook na een fout; al de rest blijft staan."""
+    """Eén gekozen bestand verwerken. Wat de opvolging zou weghalen (telefoonopnames), wordt
+    verwerkt en weggehaald zoals altijd, ook na een fout; al de rest blijft staan."""
+    if consumed_by_watcher(cfg, audio):
+        return process(cfg, transcriber, llm, read_recording(audio))
     rec = recording_for(cfg, audio)
-    if rec.sidecar is not None and in_watched_folder(cfg, audio):
-        return process(cfg, transcriber, llm, rec)
     rec.in_place, rec.sidecar = True, None
     note = process(cfg, transcriber, llm, rec)
     (log_ or ProcessedLog()).mark(audio, note=str(note))

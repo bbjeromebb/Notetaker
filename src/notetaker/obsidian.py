@@ -86,9 +86,9 @@ def _with_value(text: str, section: str, key: str, value) -> str:
         head = text[: head_end.start()] if head_end else text
         head = _replace_key(head, key, line) or line + "\n" + head
         return head + (text[head_end.start():] if head_end else "")
-    # Ook "[ inbox ]" en "[inbox]  # commentaar" herkennen
-    match = re.search(rf"(?ms)^\[[ \t]*{re.escape(section)}[ \t]*\][ \t]*(?:#[^\n]*)?(?:\n|\Z)(.*?)(?=^\[|\Z)",
-                      text)
+    # Ook "[ inbox ]", "[inbox]  # commentaar" en ingesprongen koppen herkennen
+    match = re.search(rf"(?ms)^[ \t]*\[[ \t]*{re.escape(section)}[ \t]*\][ \t]*(?:#[^\n]*)?(?:\n|\Z)"
+                      rf"(.*?)(?=^[ \t]*\[|\Z)", text)
     if match is None:
         return text.rstrip("\n") + ("\n\n" if text.strip() else "") + f"[{section}]\n{line}\n"
     before, body = text[: match.start(1)], match.group(1)
@@ -96,9 +96,21 @@ def _with_value(text: str, section: str, key: str, value) -> str:
     return before + ("" if before.endswith("\n") else "\n") + body + text[match.end(1):]
 
 
+def _expected(data: dict, changes: list[tuple[str, str, object]]) -> dict:
+    import copy
+
+    out = copy.deepcopy(data)
+    for section, key, value in changes:
+        table = out.setdefault(section, {}) if section else out
+        table[key] = list(value) if isinstance(value, tuple) else value
+    return out
+
+
 def update_toml(config_path: Path, changes: list[tuple[str, str, object]]) -> None:
     """Zet sleutels (sectie, sleutel, waarde) in config.toml in één keer; commentaar en overige
-    inhoud blijven staan. Zou het bestand ongeldig worden, dan blijft het ongewijzigd (ValueError)."""
+    inhoud blijven staan. Het resultaat wordt teruggelezen: bevat het iets anders dan precies deze
+    wijzigingen (ongeldig, of een verkeerde regel vervangen), dan blijft het bestand ongewijzigd
+    en volgt een ValueError."""
     import tomllib
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,15 +118,18 @@ def update_toml(config_path: Path, changes: list[tuple[str, str, object]]) -> No
     for section, key, value in changes:
         text = _with_value(text, section, key, value)
     try:
-        tomllib.loads(text)
-    except tomllib.TOMLDecodeError as e:
+        before = tomllib.loads(old)
+    except tomllib.TOMLDecodeError:
+        before = None  # was al ongeldig: niet de schuld van deze wijziging
+    if before is not None:
+        names = ", ".join(f"{s + '.' if s else ''}{k}" for s, k, _ in changes)
         try:
-            tomllib.loads(old)
-        except tomllib.TOMLDecodeError:
-            pass  # was al ongeldig: niet de schuld van deze wijziging
-        else:
-            names = ", ".join(f"{s + '.' if s else ''}{k}" for s, k, _ in changes)
+            after = tomllib.loads(text)
+        except tomllib.TOMLDecodeError as e:
             raise ValueError(f"{names} niet aangepast: {config_path.name} zou ongeldig worden ({e}).") from e
+        if after != _expected(before, changes):
+            raise ValueError(f"{names} niet aangepast: de opmaak van {config_path.name} is te ongewoon "
+                             "om veilig te wijzigen. Pas het bestand met de hand aan.")
     config_path.write_text(text, encoding="utf-8")
 
 
