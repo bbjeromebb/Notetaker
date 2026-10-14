@@ -28,7 +28,6 @@ Regels:
 - Somt de spreker duidelijk punten op ("ten eerste", "één ... twee ..."), maak er dan een lijst van.
 - Behoud de taal en het register van de spreker. Vertaal niet. Behoud Vlaamse woordkeuze.
 - Verander de inhoud niet, voeg niets toe, vat niet samen en schrap geen inhoudelijke woorden.
-- Tokens van de vorm ⟦S0⟧, ⟦S1⟧ ... laat je ongewijzigd staan.
 - Geef uitsluitend de opgeschoonde tekst terug, zonder inleiding, aanhalingstekens of uitleg."""
 
 COMMAND_SYSTEM = """Je bewerkt tekst op basis van een gesproken instructie.
@@ -181,8 +180,14 @@ def looks_unfaithful(raw: str, output: str) -> bool:
     return len(spoken_words) >= 3 and len(lost) / len(spoken_words) > 0.15
 
 
+_PLACEHOLDER_RE = re.compile(r"\s*⟦S\d+⟧")
+
+
 def build_cleanup_prompt(raw: str, style: str, dictionary: list[str]) -> str:
     parts = [f"Stijl: {STYLE_INSTRUCTIONS.get(style, STYLE_INSTRUCTIONS['default'])}"]
+    if _PLACEHOLDER_RE.search(raw):
+        # Enkel vermelden als er snippets zijn: anders verzint het model zelf zo'n token
+        parts.append("Tokens van de vorm ⟦S0⟧, ⟦S1⟧ laat je ongewijzigd op hun plaats staan.")
     terms = relevant_terms(raw, dictionary)
     if terms:
         parts.append("Deze termen uit de transcriptie schrijf je exact zo: " + ", ".join(terms))
@@ -214,6 +219,7 @@ def clean_dictation(raw: str, *, llm: LLM | None, model: str, effort: str, style
     if not cleaned:
         cleaned = basic_cleanup(text)
     cleaned = restore_snippets(cleaned, mapping)
+    cleaned = _PLACEHOLDER_RE.sub("", cleaned).strip()  # verzonnen tokens zonder snippet
     return apply_dictionary(cleaned, dictionary, replacements)
 
 

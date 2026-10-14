@@ -88,3 +88,17 @@ def test_u_filler_removed_before_the_model():
     llm = FakeLLM("Kan je mij morgen even bellen?")
     assert clean("Uw, kan je mij morgen? Uw, even bellen?", llm) == "Kan je mij morgen even bellen?"
     assert "Uw" not in llm.calls[0][1]
+
+
+def test_invented_placeholder_is_removed():
+    """Run 6: gemma3:12b schreef '⟦S0⟧' achter een zin zonder snippets."""
+    llm = FakeLLM("Kan je mij morgen even bellen? ⟦S0⟧")
+    assert clean("Euh, kan je mij morgen? Euh, even bellen?", llm) == "Kan je mij morgen even bellen?"
+    assert "⟦" not in llm.calls[0][0] and "⟦" not in llm.calls[0][1]
+
+
+def test_real_snippet_placeholder_still_explained():
+    out = cleanup.clean_dictation("euh stuur mijn agenda link door", llm=FakeLLM("Stuur ⟦S0⟧ door."),
+                                  model="m", effort="low", style="default", dictionary=[],
+                                  replacements={}, snippets={"mijn agenda link": "https://cal.example"})
+    assert out == "Stuur https://cal.example door."
