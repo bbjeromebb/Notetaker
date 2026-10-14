@@ -18,7 +18,8 @@ from .llm import build_llm
 from .meeting import MeetingRecorder
 from .obsidian import is_vault, known_vaults, set_vault
 from .overlay import Overlay, UiThread
-from .stt import build_transcriber
+from .inbox import InboxWatcher
+from .stt import SerializedTranscriber, build_transcriber
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ class TrayApp:
         self.cfg = cfg
         self.config_path = config_path or default_path()
         log.info("Spraakmodel laden (%s, %s)...", cfg.stt.backend, cfg.stt.model)
-        self.transcriber = build_transcriber(cfg.stt)
+        self.transcriber = SerializedTranscriber(build_transcriber(cfg.stt))
         self.llm = build_llm(cfg.llm)
         if hasattr(self.llm, "warmup"):
             threading.Thread(target=self._warmup, daemon=True).start()
@@ -80,6 +81,8 @@ class TrayApp:
         self.meeting: MeetingRecorder | None = None
         self.icon = None
         self.ui = UiThread()
+        self.inbox = InboxWatcher(cfg, self.transcriber, self.llm,
+                                  on_note=lambda p: self._notify(f"Telefoonopname verwerkt: {p.name}"))
         self.overlay: Overlay | None = None
 
     def _warmup(self) -> None:
@@ -211,10 +214,12 @@ class TrayApp:
                 log.exception("Opnamevenster kon niet starten; verder zonder")
                 self.overlay = None
         self.listener.start()
+        self.inbox.start()
         log.info("Klaar. Houd %s ingedrukt om te dicteren.", display_combo(d.hotkey))
         self.icon.run()
 
     def _quit(self, icon, item) -> None:
+        self.inbox.stop()
         if self.meeting is not None and self.meeting.running:
             self.meeting.stop()
         self.listener.stop()

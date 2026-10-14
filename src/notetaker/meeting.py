@@ -14,7 +14,7 @@ from .audio import SAMPLE_RATE, find_split_point, rms, write_audio
 from .config import Config
 from .llm import LLM, LLMError
 from .obsidian import atomic_write_text, frontmatter
-from .stt import Segment, Transcriber, vocab_prompt
+from .stt import Segment, Transcriber, transcribe_chunked, vocab_prompt
 
 log = logging.getLogger(__name__)
 
@@ -347,6 +347,7 @@ class MeetingRecorder:
 
 def transcribe_file(cfg: Config, transcriber: Transcriber, audio: np.ndarray,
                     speaker: str = "Spreker") -> list[Segment]:
-    segs = transcriber.transcribe(audio, prompt=vocab_prompt(cfg.dictionary))
+    segs = transcribe_chunked(transcriber, audio, prompt=vocab_prompt(cfg.dictionary),
+                              chunk_seconds=cfg.meeting.chunk_seconds)
     return merge_segments([Segment(s.start, s.end, s.text, speaker) for s in segs])
 

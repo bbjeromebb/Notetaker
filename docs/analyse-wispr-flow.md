@@ -54,6 +54,7 @@ Notetaker is een functionele herbouw (clean-room): het gedrag van Wispr Flow is 
 | Geschiedenis | `history.jsonl` | Lokaal, met ruwe en opgeschoonde tekst en latency |
 | Opnamevenster | `overlay.py` | Zwevende balk met toestand en niveaumeter, zonder focus te nemen |
 | Vergaderingen | `meeting.py` | Extra; sprekerscheiding enkel jij versus de rest |
+| Telefoon | `android/`, `inbox.py` | Extra; Android-app neemt op, de pc verwerkt via een Syncthing-map |
 | Notities | `obsidian.py` | Extra; verslagen met frontmatter en taken in een Obsidian-vault naar keuze |
 
 ## Beperkingen

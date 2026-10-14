@@ -1,4 +1,4 @@
-"""Opdrachtregel: `notetaker run | meeting | transcribe | summarize | vault | check | set | init-config | devices`."""
+"""Opdrachtregel: `notetaker run | meeting | transcribe | summarize | vault | inbox | check | set | init-config | devices`."""
 from __future__ import annotations
 
 import argparse
@@ -149,10 +149,34 @@ def cmd_check(cfg, args) -> None:
             print(f"  {e}")
     else:
         print(f"  {cfg.llm.backend}")
+    print("Telefoon-inbox")
+    print(f"  {cfg.inbox.folder or 'niet ingesteld (notetaker set inbox.folder <map>)'}")
     print("Opslag")
     print(f"  verslagen: {cfg.meetings_dir}")
     print(f"  opnames:   {cfg.audio_dir if cfg.meeting.keep_audio else 'niet bewaard'}"
           f" ({cfg.meeting.audio_format})")
+
+
+def cmd_inbox(cfg, args) -> None:
+    from .inbox import pending, process_folder
+    from .llm import build_llm
+    from .stt import build_transcriber
+
+    if args.folder:
+        cfg.inbox.folder = str(Path(args.folder).expanduser().resolve())
+    if not cfg.inbox.folder:
+        sys.exit("Geen inbox ingesteld: notetaker set inbox.folder \"pad\\naar\\Syncthing-map\"")
+    folder = Path(cfg.inbox.folder)
+    if not pending(folder, min_age=0) and not args.watch:
+        print(f"Geen opnames in {folder}.")
+        return
+    transcriber, llm = build_transcriber(cfg.stt), build_llm(cfg.llm)
+    while True:
+        for note in process_folder(cfg, transcriber, llm, min_age=0 if not args.watch else 10):
+            print(f"Verslag: {note}")
+        if not args.watch:
+            return
+        time.sleep(cfg.inbox.interval_seconds)
 
 
 def parse_value(raw: str):
@@ -228,6 +252,10 @@ def main(argv: list[str] | None = None) -> None:
     c.add_argument("--load", action="store_true",
                    help="Whisper echt laden (downloadt het model de eerste keer en test de GPU)")
     c.set_defaults(fn=cmd_check)
+    ib = sub.add_parser("inbox", help="opnames van de Android-app verwerken")
+    ib.add_argument("--folder", help="map die Syncthing vult (anders [inbox] folder)")
+    ib.add_argument("--watch", action="store_true", help="blijven wachten op nieuwe opnames")
+    ib.set_defaults(fn=cmd_inbox)
     st = sub.add_parser("set", help="één instelling wijzigen, bv. 'set llm.num_gpu 0'")
     st.add_argument("key", help="sectie.sleutel")
     st.add_argument("value")

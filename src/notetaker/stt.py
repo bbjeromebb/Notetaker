@@ -163,6 +163,44 @@ class OpenAICompatibleTranscriber:
         return out
 
 
+class SerializedTranscriber:
+    """Eén model, meerdere gebruikers (dicteren, vergadering, telefoon-inbox): één tegelijk."""
+
+    def __init__(self, inner: Transcriber) -> None:
+        import threading
+
+        self.inner = inner
+        self._lock = threading.Lock()
+
+    @property
+    def device(self) -> str:
+        return getattr(self.inner, "device", "")
+
+    def transcribe(self, audio: np.ndarray, prompt: str = "") -> list[Segment]:
+        with self._lock:
+            return self.inner.transcribe(audio, prompt)
+
+
+def transcribe_chunked(transcriber: Transcriber, audio: np.ndarray, prompt: str = "",
+                       chunk_seconds: float = 30.0) -> list[Segment]:
+    """Lange opname in stukken van ongeveer 30 s, geknipt in stiltes. Tussen de stukken door
+    krijgt een dictee voorrang, zodat de pc niet minutenlang onbruikbaar is."""
+    from .audio import find_split_point
+
+    out: list[Segment] = []
+    offset, pos, size = 0.0, 0, int(chunk_seconds * SAMPLE_RATE)
+    while pos < audio.size:
+        end = min(audio.size, pos + size)
+        if end < audio.size:
+            end = pos + find_split_point(audio[pos:end])
+        chunk = audio[pos:end]
+        for s in transcriber.transcribe(chunk, prompt):
+            out.append(Segment(s.start + offset, s.end + offset, s.text, s.speaker))
+        offset += chunk.size / SAMPLE_RATE
+        pos = end
+    return out
+
+
 def build_transcriber(cfg: STTConfig) -> Transcriber:
     if cfg.backend == "faster-whisper":
         return FasterWhisperTranscriber(cfg)

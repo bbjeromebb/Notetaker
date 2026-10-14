@@ -82,6 +82,25 @@ Notities worden geschreven via een tijdelijk bestand en in één stap hernoemd; 
 
 Map, tags en taakformaat staan onder `[obsidian]` in de configuratie.
 
+## Android: vergaderingen opnemen met de telefoon
+
+De Android-app (map `android/`) neemt vergaderingen op en laat de verwerking aan de pc over. De telefoon zet elke opname als Opus-bestand met een `.json` (titel, starttijd, eigen notities) in een map die Syncthing naar de pc synchroniseert. Notetaker op de pc pikt ze op, transcribeert op de GPU, vat samen met `gemma3:12b` en schrijft de notitie in de vault. Syncthing brengt het verslag terug naar Obsidian op de telefoon.
+
+```
+Telefoon: opnemen -> inboxmap --Syncthing--> pc: Whisper + Ollama -> vault --Syncthing--> Obsidian op telefoon
+```
+
+Installeren:
+
+1. Download `notetaker-android.apk` bij de laatste geslaagde run onder **Actions > Android** op GitHub en open het bestand op de telefoon. Sta installatie uit onbekende bron toe voor je browser of bestandsbeheer.
+2. Maak in Syncthing (op Android: Syncthing-Fork) een nieuwe gedeelde map, bv. `Notetaker-inbox`, tussen telefoon en pc.
+3. Kies in de app bij **Inboxmap** die map.
+4. Op de pc: `notetaker set inbox.folder "C:\pad\naar\Notetaker-inbox"` en Notetaker herstarten. De app in het systeemvak controleert de map elke 15 seconden; `notetaker inbox` verwerkt ze eenmalig vanaf de opdrachtregel.
+
+De app toont per opname de toestand: wacht op doorsturen, doorgestuurd en wacht op de pc, of verwerkt. "Verwerkt" betekent dat de pc de opname uit de inbox haalde. Wat je tijdens de opname onder **Mijn notities** typt, komt in de notitie en gaat mee naar het taalmodel.
+
+Beperking: Android laat apps het gespreksgeluid van Teams, Zoom of Meet niet opnemen. Een online vergadering op de telefoon zelf komt alleen in de opname via de luidspreker. Een vergadering in een zaal of een gesprek op de pc heeft dat probleem niet.
+
 ## Configuratie
 
 `%APPDATA%\Notetaker\config.toml`, zie [config.example.toml](src/notetaker/config.example.toml): woordenboek, vaste correcties, snippets, stijl per app, sneltoetsen, modellen.

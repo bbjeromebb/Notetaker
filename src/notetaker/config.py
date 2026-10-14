@@ -90,12 +90,19 @@ class ObsidianConfig:
 
 
 @dataclass
+class InboxConfig:
+    folder: str = ""  # map die Syncthing vult met opnames van de Android-app; leeg = uit
+    interval_seconds: float = 15.0
+
+
+@dataclass
 class Config:
     stt: STTConfig = field(default_factory=STTConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     dictation: DictationConfig = field(default_factory=DictationConfig)
     meeting: MeetingConfig = field(default_factory=MeetingConfig)
     obsidian: ObsidianConfig = field(default_factory=ObsidianConfig)
+    inbox: InboxConfig = field(default_factory=InboxConfig)
     # Eigennamen, afkortingen en jargon: juiste schrijfwijze + hint voor de spraakherkenning
     dictionary: list[str] = field(default_factory=list)
     # Vaste correcties van misverstane woorden: "lei dal" -> "Leiedal"
