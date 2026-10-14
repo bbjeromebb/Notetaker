@@ -1,0 +1,51 @@
+name: Korte dictees (echte modellen)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "tests/real/**"
+      - "src/notetaker/stt.py"
+      - "src/notetaker/cleanup.py"
+      - "src/notetaker/dictation.py"
+      - ".github/workflows/dictation-test.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python-pakketten
+        run: |
+          pip install -e . --no-deps
+          pip install numpy faster-whisper av openai anthropic keyring piper-tts
+
+      - name: Spraaksynthese (Piper, Vlaamse stem; espeak-ng als terugval)
+        run: |
+          sudo apt-get install -y -q espeak-ng
+          mkdir -p voice
+          base=https://huggingface.co/rhasspy/piper-voices/resolve/main/nl/nl_BE/nathalie/medium
+          curl -fsSL -o voice/nl_BE-nathalie-medium.onnx $base/nl_BE-nathalie-medium.onnx || true
+          curl -fsSL -o voice/nl_BE-nathalie-medium.onnx.json $base/nl_BE-nathalie-medium.onnx.json || true
+          ls -la voice
+
+      - name: Ollama en gemma3:4b
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          (ollama serve > ollama.log 2>&1 &) ; sleep 5
+          ollama pull gemma3:4b
+
+      - name: Test
+        run: python tests/real/short_dictation.py voice uitvoer
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: korte-dictees
+          path: uitvoer/
