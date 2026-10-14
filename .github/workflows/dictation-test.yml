@@ -2,6 +2,13 @@ name: Korte dictees (echte modellen)
 
 on:
   workflow_dispatch:
+    inputs:
+      model:
+        description: "Ollama-model voor de opkuis"
+        default: "gemma3:12b"
+      vergelijk_oud:
+        description: "Ook de oude werkwijze draaien (1 = ja)"
+        default: "0"
   push:
     paths:
       - "tests/real/**"
@@ -35,13 +42,16 @@ jobs:
           curl -fsSL -o voice/nl_BE-nathalie-medium.onnx.json $base/nl_BE-nathalie-medium.onnx.json || true
           ls -la voice
 
-      - name: Ollama en gemma3:4b
+      - name: Ollama en taalmodel
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
           (ollama serve > ollama.log 2>&1 &) ; sleep 5
-          ollama pull gemma3:4b
+          ollama pull "${{ inputs.model || 'gemma3:12b' }}"
 
       - name: Test
+        env:
+          NOTETAKER_CLEANUP_MODEL: ${{ inputs.model || 'gemma3:12b' }}
+          NOTETAKER_RUN_OLD: ${{ inputs.vergelijk_oud || '0' }}
         run: python tests/real/short_dictation.py voice uitvoer
 
       - uses: actions/upload-artifact@v4

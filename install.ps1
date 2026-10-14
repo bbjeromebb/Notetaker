@@ -8,7 +8,7 @@
       -NoGpu            Whisper niet op de NVIDIA-kaart installeren
       -NoAutostart      Notetaker niet automatisch starten bij aanmelden
       -SummaryModel     taalmodel voor verslagen   (standaard gemma3:12b)
-      -CleanupModel     taalmodel voor dictee      (standaard gemma3:4b)
+      -CleanupModel     taalmodel voor dictee      (standaard gemma3:12b)
 
   Het script is herhaalbaar: opnieuw uitvoeren werkt een bestaande installatie bij.
 #>
@@ -16,7 +16,7 @@ param(
     [switch]$NoGpu,
     [switch]$NoAutostart,
     [string]$SummaryModel = "gemma3:12b",
-    [string]$CleanupModel = "gemma3:4b"
+    [string]$CleanupModel = "gemma3:12b"
 )
 
 $ErrorActionPreference = "Continue"
@@ -116,6 +116,8 @@ Step "Configuratie"
 Run $Nt @("init-config") "Configuratie aanmaken"
 Run $Nt @("set", "llm.cleanup_model", $CleanupModel) "Instelling"
 Run $Nt @("set", "llm.summary_model", $SummaryModel) "Instelling"
+# Model een hele werkdag in het geheugen houden: anders duurt het eerste dictee na een pauze lang
+Run $Nt @("set", "llm.keep_alive", "24h") "Instelling"
 if ($gpu) {
     # Kleine kaart: videogeheugen voorbehouden aan Whisper
     Run $Nt @("set", "llm.num_gpu", "0") "Instelling"

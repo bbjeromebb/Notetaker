@@ -16,9 +16,9 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 
 Bij `git clone` vraagt Windows om in te loggen bij GitHub, omdat de repository privé is. Zonder Git: download de branch als ZIP via GitHub, pak uit en start `install.ps1` vanuit die map.
 
-Het script installeert Python 3.12 en Ollama via winget, zet een virtuele omgeving op, installeert de GPU-bibliotheken als er een NVIDIA-kaart is, haalt `gemma3:4b` en `gemma3:12b` op, maakt de configuratie aan, vraagt naar je Obsidian-vault, downloadt het spraakmodel en test de GPU. Daarna maakt het een snelkoppeling in het startmenu en bij het aanmelden, en start het de app. Reken op 15 tot 30 minuten, vooral door ongeveer 11 GB aan modellen.
+Het script installeert Python 3.12 en Ollama via winget, zet een virtuele omgeving op, installeert de GPU-bibliotheken als er een NVIDIA-kaart is, haalt `gemma3:12b` op (voor dictee en verslagen), maakt de configuratie aan, vraagt naar je Obsidian-vault, downloadt het spraakmodel en test de GPU. Daarna maakt het een snelkoppeling in het startmenu en bij het aanmelden, en start het de app. Reken op 15 tot 30 minuten, vooral door ongeveer 10 GB aan modellen.
 
-Opties: `-NoGpu`, `-NoAutostart`, `-SummaryModel gemma3:4b`.
+Opties: `-NoGpu`, `-NoAutostart`, `-CleanupModel gemma3:4b`, `-SummaryModel gemma3:4b` (minder dan 16 GB werkgeheugen).
 
 ### Bijwerken
 
@@ -40,7 +40,6 @@ py -3.12 -m venv .venv
 .venv\Scripts\activate
 pip install -e ".[gpu]"
 notetaker init-config
-ollama pull gemma3:4b
 ollama pull gemma3:12b
 ```
 
@@ -53,7 +52,7 @@ notetaker check           # toont of Whisper op de GPU of de CPU draait
 
 De app zoekt de NVIDIA-DLL's zelf op en valt terug op de CPU als ze ontbreken of als het videogeheugen tekortschiet, in plaats van te crashen. Whisper draait op de GPU in `int8_float16`, wat in 2 GB past. Werkt de pip-route niet, dan bevat het archief van [whisper-standalone-win](https://github.com/Purfview/whisper-standalone-win/releases) dezelfde DLL's; zet die in een map die in `PATH` staat.
 
-Bij 2 GB videogeheugen passen Whisper en het taalmodel niet samen op de kaart. Zet daarom in de configuratie `[llm] num_gpu = 0`: Ollama rekent dan op de CPU en Whisper houdt de GPU. Met minder dan 16 GB werkgeheugen: `summary_model = "gemma3:4b"`.
+Bij 2 GB videogeheugen passen Whisper en het taalmodel niet samen op de kaart. Zet daarom in de configuratie `[llm] num_gpu = 0`: Ollama rekent dan op de CPU en Whisper houdt de GPU. Met minder dan 16 GB werkgeheugen: `gemma3:4b` voor dictee en verslagen. Korte zinnen zonder stopwoorden gaan nooit langs het taalmodel; enkel dictees met "euh", zelfcorrecties, uitgesproken leestekens of vanaf 25 woorden wachten op het model.
 
 ## Gebruik
 

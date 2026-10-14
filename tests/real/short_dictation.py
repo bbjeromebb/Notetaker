@@ -113,6 +113,9 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     cfg = config.load(config.EXAMPLE)
     cfg.stt.device = "cpu"
+    cfg.llm.cleanup_model = os.environ.get("NOTETAKER_CLEANUP_MODEL", cfg.llm.cleanup_model)
+    run_old = os.environ.get("NOTETAKER_RUN_OLD", "0") == "1"
+    print("Taalmodel:", cfg.llm.cleanup_model, "| oude werkwijze vergelijken:", run_old)
     print("Woordenlijst:", cfg.dictionary, "| prompt:", vocab_prompt(cfg.dictionary))
 
     t0 = time.time()
@@ -144,8 +147,10 @@ def main() -> None:
         audio = np.concatenate([np.zeros(int(0.15 * SAMPLE_RATE), np.float32), audio,
                                 np.zeros(int(0.25 * SAMPLE_RATE), np.float32)])
         engine.last_raw = ""
-        old_raw, old_out = old_pipeline(transcriber, llm, cfg, audio)
+        old_raw, old_out = old_pipeline(transcriber, llm, cfg, audio) if run_old else ("", "")
+        t_start = time.perf_counter()
         new_raw, new_out = new_pipeline(engine, pasted, audio)
+        seconds = round(time.perf_counter() - t_start, 1)
         r = {
             "zin": sentence, "duur_s": round(audio.size / SAMPLE_RATE, 1),
             "oud_whisper": old_raw, "oud_resultaat": old_out,
@@ -153,28 +158,42 @@ def main() -> None:
             "nieuw_whisper": new_raw, "nieuw_resultaat": new_out,
             "nieuw_score": round(score(expected, new_out), 2),
             "nieuw_lijst": leaked(sentence, new_out, cfg.dictionary),
+            "nieuw_seconden": seconds, "taalmodel_gebruikt": cleanup.needs_llm(new_raw),
         }
         results.append(r)
         print(json.dumps(r, ensure_ascii=False), flush=True)
         cell = lambda t: (t or "(leeg)").replace("\n", " / ")  # noqa: E731
-        rows.append(f"| {sentence} | {r['duur_s']} | {cell(old_out)} | {r['oud_score']} | "
-                    f"{cell(new_out)} | {r['nieuw_score']} |")
+        llm_mark = "ja" if r["taalmodel_gebruikt"] else "nee"
+        if run_old:
+            rows.append(f"| {sentence} | {cell(old_out)} | {r['oud_score']} | {cell(new_out)} | "
+                        f"{r['nieuw_score']} | {llm_mark} | {seconds} |")
+        else:
+            rows.append(f"| {sentence} | {cell(new_out)} | {r['nieuw_score']} | {llm_mark} | {seconds} |")
 
     ok_old = sum(r["oud_score"] >= 0.85 and not r["oud_lijst"] for r in results)
     ok_new = sum(r["nieuw_score"] >= 0.85 and not r["nieuw_lijst"] for r in results)
     leak_old = sum(r["oud_lijst"] for r in results)
     leak_new = sum(r["nieuw_lijst"] for r in results)
+    with_llm = [r["nieuw_seconden"] for r in results if r["taalmodel_gebruikt"]]
+    without = [r["nieuw_seconden"] for r in results if not r["taalmodel_gebruikt"]]
+    avg = lambda xs: round(sum(xs) / len(xs), 1) if xs else 0  # noqa: E731
+    header = (["| Zin | Oud resultaat | Score | Nieuw resultaat | Score | Taalmodel | Tijd (s) |",
+               "|---|---|---|---|---|---|---|"] if run_old else
+              ["| Zin | Resultaat | Score | Taalmodel | Tijd (s) |", "|---|---|---|---|---|"])
     report = "\n".join([
         "## Korte dictees: echte modellen",
-        f"Whisper {cfg.stt.model} (cpu) + {cfg.llm.cleanup_model} via Ollama, woordenlijst {cfg.dictionary}",
+        f"Whisper {cfg.stt.model} (cpu) + {cfg.llm.cleanup_model} via Ollama (cpu), "
+        f"woordenlijst {cfg.dictionary}",
         "",
-        f"- Oud: {ok_old}/{len(results)} correct, woordenlijst opgedoken in {leak_old} zinnen",
+        *([f"- Oud: {ok_old}/{len(results)} correct, woordenlijst opgedoken in {leak_old} zinnen"]
+          if run_old else []),
         f"- Nieuw: {ok_new}/{len(results)} correct, woordenlijst opgedoken in {leak_new} zinnen",
+        f"- Gemiddelde tijd per dictee: {avg(without)} s zonder taalmodel, {avg(with_llm)} s met taalmodel "
+        f"(runner met 4 vCPU, geen GPU)",
         "",
         "Correct = minstens 85 % gelijk aan de verwachte tekst (op letters) en geen woordenlijst.",
         "",
-        "| Zin | Duur (s) | Oud resultaat | Score | Nieuw resultaat | Score |",
-        "|---|---|---|---|---|---|",
+        *header,
         *rows,
     ])
     print(report)
@@ -185,7 +204,7 @@ def main() -> None:
             fh.write(report + "\n")
     if leak_new:
         sys.exit(f"Woordenlijst dook nog op in {leak_new} zinnen")
-    if ok_new < ok_old:
+    if run_old and ok_new < ok_old:
         sys.exit(f"Nieuwe werkwijze scoort slechter ({ok_new} tegen {ok_old})")
 
 

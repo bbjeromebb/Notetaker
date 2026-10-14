@@ -35,7 +35,7 @@ class LLMConfig:
     # "ollama" (lokaal, gratis), "openai-compatible" (Groq/Gemini/OpenRouter), "anthropic" of "none"
     backend: str = "ollama"
     provider: str = "ollama"  # zie providers.py; bepaalt welke API-sleutel gebruikt wordt
-    cleanup_model: str = "gemma3:4b"
+    cleanup_model: str = "gemma3:12b"
     summary_model: str = "gemma3:12b"
     temperature: float = 0.2
     # Ollama

@@ -15,11 +15,14 @@ language = "nl"
 
 [llm]
 # Standaard: Ollama, lokaal en gratis. Installeer via https://ollama.com en voer uit:
-#   ollama pull gemma3:4b
 #   ollama pull gemma3:12b
 backend = "ollama"
-cleanup_model = "gemma3:4b"     # klein en snel genoeg voor dictee
-summary_model = "gemma3:12b"    # beter voor verslagen; minder RAM: "gemma3:4b"
+# Eén model voor dictee en verslagen: één keer in het geheugen (ongeveer 8 GB).
+# gemma3:4b is sneller, maar maakte in tests fouten bij zelfcorrecties en stopwoorden.
+# Minder dan 16 GB werkgeheugen: gebruik gemma3:4b voor beide.
+cleanup_model = "gemma3:12b"
+summary_model = "gemma3:12b"
+keep_alive = "24h"              # zo lang blijft het model geladen na het laatste gebruik
 num_ctx = 16384                 # contextvenster; hoger = meer geheugen
 num_gpu = -1                    # -1 = Ollama beslist; 0 = enkel CPU
 # Laptop met kleine GPU (bv. GeForce MX550, 2 GB): zet num_gpu = 0, zodat de

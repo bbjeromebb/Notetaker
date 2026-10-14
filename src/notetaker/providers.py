@@ -30,7 +30,7 @@ class Provider:
 
 PROVIDERS: dict[str, Provider] = {p.key: p for p in (
     Provider("ollama", "Ollama (lokaal, gratis)", "ollama",
-             models=("gemma3:4b", "gemma3:12b", "qwen3:8b", "llama3.1:8b")),
+             models=("gemma3:12b", "gemma3:4b", "qwen3:8b", "llama3.1:8b")),
     Provider("groq", "Groq (gratis tier)", "openai-compatible", "https://api.groq.com/openai/v1",
              "GROQ_API_KEY", ("llama-3.1-8b-instant", "llama-3.3-70b-versatile"),
              stt_model="whisper-large-v3-turbo", key_url="https://console.groq.com/keys"),
