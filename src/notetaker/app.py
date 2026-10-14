@@ -83,7 +83,8 @@ class TrayApp:
         self.icon = None
         self.ui = UiThread()
         self.inbox = InboxWatcher(cfg, self.transcriber, self.llm,
-                                  on_note=lambda p: self._notify(f"Telefoonopname verwerkt: {p.name}"))
+                                  on_note=lambda p: self._notify(f"Opname verwerkt: {p.name}"),
+                                  config_path=self.config_path)
         self.overlay: Overlay | None = None
 
     def _warmup(self) -> None:
@@ -200,6 +201,8 @@ class TrayApp:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(meeting_label, lambda i, it: threading.Thread(
                 target=self.toggle_meeting, daemon=True).start()),
+            pystray.MenuItem("Opname verwerken...", lambda i, it: threading.Thread(
+                target=self.process_recording, daemon=True).start()),
             pystray.MenuItem("Verslagen opslaan in", pystray.Menu(self._vault_items)),
             pystray.MenuItem("Map met verslagen openen", lambda i, it: _open_folder(self.cfg.meetings_dir)),
             pystray.MenuItem("Instellingen...", lambda i, it: self.open_settings()),
@@ -226,6 +229,26 @@ class TrayApp:
         log.info("Klaar (versie %s). Houd %s ingedrukt om te dicteren.",
                  updater.current_version(), display_combo(d.hotkey))
         self.icon.run()
+
+    def process_recording(self) -> None:
+        """Een gekozen geluidsbestand transcriberen en samenvatten; het bestand blijft staan."""
+        from .inbox import process_file
+
+        start = self.cfg.obsidian.vault or str(self.cfg.default_dir)
+        chosen = self.ui.ask_audio_file("Opname kiezen om te transcriberen", start)
+        if not chosen:
+            return
+        self._notify(f"Bezig met {Path(chosen).name}. Je krijgt een melding als het verslag klaar is.")
+        self._set_state("processing")
+        try:
+            with self.inbox.busy:
+                note = process_file(self.cfg, self.transcriber, self.llm, Path(chosen), self.inbox.log)
+            self._notify(f"Verslag klaar: {note.name}")
+        except Exception as e:
+            log.exception("Verwerken van %s mislukt", chosen)
+            self._notify(f"Verwerken mislukt: {e}")
+        finally:
+            self._set_state("idle")
 
     def open_about(self) -> None:
         from .settings_ui import show_about

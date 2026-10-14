@@ -102,11 +102,21 @@ De Android-app (map `android/`) neemt vergaderingen op en laat de verwerking aan
 Telefoon: opnemen -> inboxmap --Syncthing--> pc: Whisper + Ollama -> vault --Syncthing--> Obsidian op telefoon
 ```
 
+### Opnames in de Obsidian-vault
+
+Notetaker volgt ook mappen in de vault op, standaard `Vault/Opnames`. Elk geluidsbestand dat daar bijkomt (`.ogg`, `.m4a`, `.webm`, `.mp3`, `.wav`, ...) wordt getranscribeerd en samengevat tot een verslag in `Vergaderingen`:
+
+- **Opnames van de Android-app** (met `.json` ernaast): verwerkt en daarna uit de map gehaald, zodat de app "Verwerkt door de pc" toont. Kies in de app als inboxmap gewoon de map `Opnames` in je vault: een aparte Syncthing-map is dan niet nodig.
+- **Andere opnames**, bijvoorbeeld van de opnamefunctie van Obsidian of een dictafoon-app: die blijven staan. Het verslag sluit ze in met `![[...]]`. Staat de opname in een notitie, dan worden de naam en de tekst van die notitie de titel en de eigen notities van het verslag, met een link `Bron: [[...]]` terug. Welke opnames al verwerkt zijn, staat in `%APPDATA%\Notetaker\verwerkt.json`.
+- Bij de eerste start onthoudt Notetaker het tijdstip; oudere opnames worden niet massaal verwerkt. `notetaker inbox --all` doet dat wel.
+
+Andere of extra mappen: `vault_folders = ["Opnames", "Bijlagen"]` onder `[inbox]`, of `["*"]` voor de hele vault. Eén bestand verwerken kan altijd via **Opname verwerken...** in het menu van het systeemvak, of met `notetaker inbox --file pad\naar\opname.m4a`.
+
 Installeren:
 
 1. Download `notetaker-android.apk` bij de laatste geslaagde run onder **Actions > Android** op GitHub en open het bestand op de telefoon. Sta installatie uit onbekende bron toe voor je browser of bestandsbeheer.
 2. Maak in Syncthing (op Android: Syncthing-Fork) een nieuwe gedeelde map, bv. `Notetaker-inbox`, tussen telefoon en pc.
-3. Kies in de app bij **Inboxmap** die map.
+3. Kies in de app bij **Inboxmap** die map, of de map `Opnames` in je vault (zie hierboven).
 4. Op de pc: `notetaker set inbox.folder "C:\pad\naar\Notetaker-inbox"` en Notetaker herstarten. De app in het systeemvak controleert de map elke 15 seconden; `notetaker inbox` verwerkt ze eenmalig vanaf de opdrachtregel.
 
 De app toont per opname de toestand: wacht op doorsturen, doorgestuurd en wacht op de pc, of verwerkt. "Verwerkt" betekent dat de pc de opname uit de inbox haalde. Wat je tijdens de opname onder **Mijn notities** typt, komt in de notitie en gaat mee naar het taalmodel.

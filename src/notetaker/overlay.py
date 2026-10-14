@@ -110,6 +110,17 @@ class UiThread:
         self._q.put((fn, fut))
         return fut
 
+    def ask_audio_file(self, title: str, initial: str = "") -> str:
+        from tkinter import filedialog
+
+        def ask():
+            self.root.attributes("-topmost", True)
+            return filedialog.askopenfilename(
+                parent=self.root, title=title, initialdir=initial or None,
+                filetypes=[("Geluidsbestanden", "*.ogg *.opus *.m4a *.mp3 *.wav *.webm *.aac *.flac *.3gp *.mp4"),
+                           ("Alle bestanden", "*.*")]) or ""
+        return self.call(ask).result()
+
     def ask_directory(self, title: str, initial: str = "") -> str:
         from tkinter import filedialog
 

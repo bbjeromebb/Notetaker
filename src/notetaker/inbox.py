@@ -1,14 +1,22 @@
-"""Opnames van de telefoon verwerken.
+"""Opnames van de telefoon en uit de Obsidian-vault verwerken.
 
-De Android-app zet elke vergadering als `<naam>.ogg` (Opus) in een map die Syncthing naar deze pc
-synchroniseert, met ernaast `<naam>.json` (titel, starttijd, duur, eigen notities). Deze module houdt
-die map in de gaten, transcribeert en vat samen, schrijft de notitie in de vault en haalt de opname
-uit de inbox. Syncthing verwijdert ze dan ook op de telefoon: zo ziet de app dat ze verwerkt is.
+Twee soorten bronnen:
+
+1. Opnames van de Android-app: `<naam>.ogg` met `<naam>.json` (titel, starttijd, eigen notities),
+   in een aparte Syncthing-map of in een map van de vault (standaard `Opnames`). Na verwerking
+   verdwijnen ze uit die map; Syncthing verwijdert ze dan ook op de telefoon, zo ziet de app dat
+   ze verwerkt zijn.
+2. Andere opnames in de vault (Obsidian-opnamefunctie, dictafoon-app, gekopieerde bestanden):
+   die blijven staan. Het verslag sluit ze in, en `verwerkt.json` in de app-map onthoudt welke
+   al verwerkt zijn. Staat de opname in een notitie, dan leveren titel en tekst van die notitie
+   de titel en de eigen notities.
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 import shutil
 import threading
 import time
@@ -17,16 +25,17 @@ from datetime import datetime
 from pathlib import Path
 
 from .audio import SAMPLE_RATE, load_audio
-from .config import Config
+from .config import Config, app_dir, default_path
 from .llm import LLM, LLMError
-from .meeting import format_transcript, render_note, safe_filename, summarize, transcribe_file
-from .obsidian import atomic_write_text
+from .meeting import extract_own_notes, format_transcript, render_note, safe_filename, summarize, transcribe_file
+from .obsidian import atomic_write_text, set_toml_value
 from .stt import Transcriber
 
 log = logging.getLogger(__name__)
 
-AUDIO_EXTENSIONS = {".ogg", ".opus", ".m4a", ".mp3", ".wav", ".webm", ".aac", ".flac"}
+AUDIO_EXTENSIONS = {".ogg", ".opus", ".m4a", ".mp3", ".wav", ".webm", ".aac", ".flac", ".3gp", ".mp4"}
 FAILED_SUFFIX = ".fout.txt"
+SKIP_DIRS = {".obsidian", ".trash", ".git", ".stfolder", ".stversions"}
 
 
 @dataclass
@@ -36,6 +45,24 @@ class Recording:
     started: datetime
     own_notes: str = ""
     sidecar: Path | None = None
+    in_place: bool = False  # opname blijft staan (geen Android-inbox)
+    source_note: str = ""  # notitie in de vault waarin de opname staat
+
+
+# --- metadata ------------------------------------------------------------------------
+
+_STAMP_RE = re.compile(r"(20\d{2})[-_]?(\d{2})[-_]?(\d{2})[ _T-]?(\d{2})[-_:]?(\d{2})(?:[-_:]?(\d{2}))?")
+
+
+def started_from_name(path: Path) -> datetime | None:
+    """Tijdstip uit de bestandsnaam, bv. 'Recording 20261014093015.webm' of '2026-10-14_0930_x.ogg'."""
+    m = _STAMP_RE.search(path.stem)
+    if not m:
+        return None
+    try:
+        return datetime(*(int(g) for g in m.groups(default="0")))
+    except ValueError:
+        return None
 
 
 def read_recording(audio: Path) -> Recording:
@@ -47,7 +74,7 @@ def read_recording(audio: Path) -> Recording:
             meta = json.loads(sidecar.read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
             log.warning("Sidecar %s onleesbaar: %s", sidecar.name, e)
-    started = datetime.fromtimestamp(audio.stat().st_mtime)
+    started = started_from_name(audio) or datetime.fromtimestamp(audio.stat().st_mtime)
     if meta.get("started"):
         try:
             started = datetime.fromisoformat(str(meta["started"]).replace("Z", "+00:00"))
@@ -58,6 +85,51 @@ def read_recording(audio: Path) -> Recording:
     return Recording(audio=audio, title=str(meta.get("title") or audio.stem), started=started,
                      own_notes=str(meta.get("notes") or ""),
                      sidecar=sidecar if sidecar.exists() else None)
+
+
+def find_embedding_note(vault: Path, audio: Path, exclude: Path | None = None) -> Path | None:
+    """Notitie die de opname insluit of ernaar linkt (zoals bij Obsidians opnamefunctie)."""
+    rel = audio.relative_to(vault).as_posix()
+    targets = {f"[[{audio.name}", f"[[{rel}", f"({audio.name.replace(' ', '%20')})"}
+    for note in _walk(vault, {".md"}, exclude):
+        try:
+            if note.stat().st_size > 2_000_000:
+                continue
+            text = note.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if any(t in text for t in targets):
+            return note
+    return None
+
+
+def note_context(note: Path) -> tuple[str, str]:
+    """Titel en eigen tekst van een notitie, zonder frontmatter en ingesloten bestanden."""
+    text = note.read_text(encoding="utf-8", errors="ignore")
+    text = re.sub(r"\A---\n.*?\n---\n", "", text, flags=re.S)
+    own = extract_own_notes(text) or text
+    own = re.sub(r"!\[\[[^\]]+\]\]", "", own)
+    return note.stem, own.strip()
+
+
+# --- bestanden zoeken ------------------------------------------------------------------
+
+def _walk(root: Path, extensions: set[str], exclude: Path | None = None):
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+        here = Path(dirpath)
+        if exclude is not None and (here == exclude or exclude in here.parents):
+            continue
+        for name in filenames:
+            if not name.startswith(".") and Path(name).suffix.lower() in extensions:
+                yield here / name
+
+
+def _is_ready(p: Path, now: float, min_age: float) -> bool:
+    try:
+        return now - p.stat().st_mtime >= min_age
+    except OSError:
+        return False
 
 
 def pending(folder: Path, min_age: float = 10.0, now: float | None = None) -> list[Path]:
@@ -71,14 +143,97 @@ def pending(folder: Path, min_age: float = 10.0, now: float | None = None) -> li
             continue  # Syncthing en de app schrijven eerst naar verborgen tijdelijke bestanden
         if p.with_name(p.name + FAILED_SUFFIX).exists():
             continue
-        try:
-            if now - p.stat().st_mtime < min_age:
-                continue
-        except OSError:
-            continue
-        out.append(p)
+        if _is_ready(p, now, min_age):
+            out.append(p)
     return out
 
+
+class ProcessedLog:
+    """Welke opnames in de vault al verwerkt zijn (die blijven immers staan)."""
+
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path or app_dir() / "verwerkt.json"
+        try:
+            self.data: dict = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            self.data = {}
+
+    def done(self, audio: Path) -> bool:
+        entry = self.data.get(str(audio))
+        try:
+            return bool(entry) and abs(entry["mtime"] - audio.stat().st_mtime) < 1
+        except OSError:
+            return True
+
+    def mark(self, audio: Path, note: str = "", error: str = "") -> None:
+        self.data[str(audio)] = {"mtime": audio.stat().st_mtime, "note": note, "error": error,
+                                 "at": datetime.now().isoformat(timespec="seconds")}
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(self.path, json.dumps(self.data, ensure_ascii=False, indent=1))
+
+
+def vault_audio_folders(cfg: Config) -> list[Path]:
+    if not cfg.obsidian.vault:
+        return []
+    vault = Path(cfg.obsidian.vault).expanduser()
+    return [vault if f in ("*", "", ".") else vault / f for f in cfg.inbox.vault_folders]
+
+
+def vault_candidates(cfg: Config, log_: ProcessedLog, min_age: float = 10.0,
+                     include_old: bool = False, now: float | None = None) -> list[Path]:
+    """Nieuwe opnames in de vaultmappen, zonder de eigen verslagenmap en wat al verwerkt is."""
+    now = time.time() if now is None else now
+    since = 0.0
+    if cfg.inbox.vault_since and not include_old:
+        try:
+            since = datetime.fromisoformat(cfg.inbox.vault_since).timestamp()
+        except ValueError:
+            since = 0.0
+    own = cfg.meetings_dir  # opnames naast de eigen verslagen nooit opnieuw verwerken
+    seen, out = set(), []
+    for folder in vault_audio_folders(cfg):
+        if not folder.is_dir():
+            continue
+        for p in _walk(folder, AUDIO_EXTENSIONS, exclude=own):
+            if p in seen:
+                continue
+            seen.add(p)
+            if not _is_ready(p, now, min_age) or log_.done(p):
+                continue
+            if p.with_suffix(".json").exists():
+                out.append(p)  # Android-opname: altijd verwerken, ze verdwijnt daarna
+            elif p.stat().st_mtime >= since:
+                out.append(p)
+    return sorted(out)
+
+
+def ensure_vault_since(cfg: Config, config_path: Path | None = None) -> None:
+    """Bij de eerste start: oudere opnames in de vault niet massaal verwerken."""
+    if cfg.obsidian.vault and not cfg.inbox.vault_since:
+        cfg.inbox.vault_since = datetime.now().isoformat(timespec="seconds")
+        try:
+            set_toml_value(config_path or default_path(), "inbox", "vault_since", cfg.inbox.vault_since)
+        except OSError as e:
+            log.warning("vault_since niet bewaard: %s", e)
+
+
+def recording_for(cfg: Config, audio: Path) -> Recording:
+    """Recording voor een bestand: Android-opname (met .json) of een opname die blijft staan."""
+    rec = read_recording(audio)
+    if rec.sidecar is not None:
+        return rec
+    rec.in_place = True
+    vault = Path(cfg.obsidian.vault).expanduser() if cfg.obsidian.vault else None
+    if vault is not None and vault in audio.parents:
+        note = find_embedding_note(vault, audio, exclude=cfg.meetings_dir)
+        if note is not None:
+            title, own = note_context(note)
+            rec.title, rec.own_notes = title, own
+            rec.source_note = note.relative_to(vault).with_suffix("").as_posix()
+    return rec
+
+
+# --- verwerken -------------------------------------------------------------------------
 
 def process(cfg: Config, transcriber: Transcriber, llm: LLM | None, rec: Recording) -> Path:
     audio = load_audio(rec.audio)
@@ -105,6 +260,15 @@ def process(cfg: Config, transcriber: Transcriber, llm: LLM | None, rec: Recordi
         note = cfg.meetings_dir / f"{stem}-{n}.md"
         n += 1
 
+    if rec.in_place:
+        vault = Path(cfg.obsidian.vault).expanduser() if cfg.obsidian.vault else None
+        in_vault = vault is not None and vault in rec.audio.parents
+        atomic_write_text(note, render_note(
+            cfg, rec.title, rec.started, duration, summary, transcript, own_notes=rec.own_notes,
+            vault_audio=rec.audio.relative_to(vault).as_posix() if in_vault else "",
+            external_audio="" if in_vault else str(rec.audio), source_note=rec.source_note))
+        return note
+
     audio_target = None
     if cfg.meeting.keep_audio:
         cfg.audio_dir.mkdir(parents=True, exist_ok=True)
@@ -121,8 +285,17 @@ def process(cfg: Config, transcriber: Transcriber, llm: LLM | None, rec: Recordi
     return note
 
 
+def _mark_failed(audio: Path, error: Exception) -> None:
+    audio.with_name(audio.name + FAILED_SUFFIX).write_text(
+        f"{datetime.now():%Y-%m-%d %H:%M} {error}\nVerwijder dit bestand om opnieuw te proberen.\n",
+        encoding="utf-8")
+
+
 def process_folder(cfg: Config, transcriber: Transcriber, llm: LLM | None,
                    min_age: float = 10.0) -> list[Path]:
+    """Aparte Syncthing-map: alles wordt verwerkt en daarna weggehaald."""
+    if not cfg.inbox.folder:
+        return []
     notes = []
     for audio in pending(Path(cfg.inbox.folder).expanduser(), min_age):
         rec = read_recording(audio)
@@ -131,39 +304,89 @@ def process_folder(cfg: Config, transcriber: Transcriber, llm: LLM | None,
             notes.append(process(cfg, transcriber, llm, rec))
         except Exception as e:  # één kapotte opname mag de rest niet blokkeren
             log.exception("Verwerken van %s mislukt", audio.name)
-            audio.with_name(audio.name + FAILED_SUFFIX).write_text(
-                f"{datetime.now():%Y-%m-%d %H:%M} {e}\nVerwijder dit bestand om opnieuw te proberen.\n",
-                encoding="utf-8")
+            _mark_failed(audio, e)
     return notes
 
 
+def process_vault(cfg: Config, transcriber: Transcriber, llm: LLM | None, min_age: float = 10.0,
+                  include_old: bool = False, log_: ProcessedLog | None = None) -> list[Path]:
+    """Opnames in de vaultmappen verwerken."""
+    log_ = log_ or ProcessedLog()
+    notes = []
+    for audio in vault_candidates(cfg, log_, min_age, include_old):
+        rec = recording_for(cfg, audio)
+        log.info("Opname uit de vault verwerken: %s", audio.name)
+        try:
+            note = process(cfg, transcriber, llm, rec)
+        except Exception as e:
+            log.exception("Verwerken van %s mislukt", audio.name)
+            if rec.in_place:
+                log_.mark(audio, error=str(e))  # niet opnieuw proberen tot het bestand wijzigt
+            else:
+                _mark_failed(audio, e)
+            continue
+        if rec.in_place:
+            log_.mark(audio, note=str(note))
+        notes.append(note)
+    return notes
+
+
+def process_file(cfg: Config, transcriber: Transcriber, llm: LLM | None, audio: Path,
+                 log_: ProcessedLog | None = None) -> Path:
+    """Eén gekozen bestand verwerken; het blijft altijd staan."""
+    rec = recording_for(cfg, audio)
+    rec.in_place, rec.sidecar = True, None
+    note = process(cfg, transcriber, llm, rec)
+    (log_ or ProcessedLog()).mark(audio, note=str(note))
+    return note
+
+
+def has_work(cfg: Config, log_: ProcessedLog) -> bool:
+    if cfg.inbox.folder and pending(Path(cfg.inbox.folder).expanduser()):
+        return True
+    return bool(vault_candidates(cfg, log_))
+
+
 class InboxWatcher:
-    """Controleert de inbox op de achtergrond; `busy` houdt dicteren en verwerken uit elkaar."""
+    """Controleert inbox en vault op de achtergrond; `busy` houdt verwerkingen uit elkaar."""
 
     def __init__(self, cfg: Config, transcriber: Transcriber, llm: LLM | None,
-                 on_note=None, busy: threading.Lock | None = None) -> None:
+                 on_note=None, busy: threading.Lock | None = None,
+                 config_path: Path | None = None) -> None:
         self.cfg = cfg
         self.transcriber = transcriber
         self.llm = llm
         self.on_note = on_note or (lambda path: None)
         self.busy = busy or threading.Lock()
+        self.config_path = config_path
+        self.log = ProcessedLog()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
-        if not self.cfg.inbox.folder:
+        if not self.cfg.inbox.folder and not self.cfg.obsidian.vault:
             return
+        ensure_vault_since(self.cfg, self.config_path)
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
-        log.info("Inbox voor telefoonopnames: %s", self.cfg.inbox.folder)
+        log.info("Opnames opvolgen: inbox %s, vaultmappen %s", self.cfg.inbox.folder or "-",
+                 [str(p) for p in vault_audio_folders(self.cfg)])
+
+    def run_once(self) -> list[Path]:
+        with self.busy:
+            notes = process_folder(self.cfg, self.transcriber, self.llm)
+            notes += process_vault(self.cfg, self.transcriber, self.llm, log_=self.log)
+        for note in notes:
+            self.on_note(note)
+        return notes
 
     def _loop(self) -> None:
         while not self._stop.wait(self.cfg.inbox.interval_seconds):
-            if not pending(Path(self.cfg.inbox.folder).expanduser()):
-                continue
-            with self.busy:
-                for note in process_folder(self.cfg, self.transcriber, self.llm):
-                    self.on_note(note)
+            try:
+                if has_work(self.cfg, self.log):
+                    self.run_once()
+            except Exception:
+                log.exception("Opvolgen van opnames mislukt")
 
     def stop(self) -> None:
         self._stop.set()

@@ -153,8 +153,12 @@ def cmd_check(cfg, args) -> None:
             print(f"  {e}")
     else:
         print(f"  {cfg.llm.backend}")
-    print("Telefoon-inbox")
-    print(f"  {cfg.inbox.folder or 'niet ingesteld (notetaker set inbox.folder <map>)'}")
+    from .inbox import vault_audio_folders
+
+    print("Opnames opvolgen")
+    print(f"  aparte inbox: {cfg.inbox.folder or 'geen'}")
+    folders = vault_audio_folders(cfg)
+    print("  vaultmappen:  " + (", ".join(str(p) for p in folders) if folders else "geen (geen vault)"))
     print("Opslag")
     print(f"  verslagen: {cfg.meetings_dir}")
     print(f"  opnames:   {cfg.audio_dir if cfg.meeting.keep_audio else 'niet bewaard'}"
@@ -162,23 +166,31 @@ def cmd_check(cfg, args) -> None:
 
 
 def cmd_inbox(cfg, args) -> None:
-    from .inbox import pending, process_folder
+    from .inbox import ProcessedLog, process_file, process_folder, process_vault, vault_audio_folders
     from .llm import build_llm
     from .stt import build_transcriber
 
     if args.folder:
         cfg.inbox.folder = str(Path(args.folder).expanduser().resolve())
-    if not cfg.inbox.folder:
-        sys.exit("Geen inbox ingesteld: notetaker set inbox.folder \"pad\\naar\\Syncthing-map\"")
-    folder = Path(cfg.inbox.folder)
-    if not pending(folder, min_age=0) and not args.watch:
-        print(f"Geen opnames in {folder}.")
-        return
+    if not cfg.inbox.folder and not cfg.obsidian.vault and not args.file:
+        sys.exit("Geen inbox en geen vault ingesteld: notetaker vault <map> of "
+                 "notetaker set inbox.folder <Syncthing-map>")
     transcriber, llm = build_transcriber(cfg.stt), build_llm(cfg.llm)
+    log_ = ProcessedLog()
+    if args.file:
+        print(f"Verslag: {process_file(cfg, transcriber, llm, Path(args.file).expanduser().resolve(), log_)}")
+        return
+    print("Inbox:", cfg.inbox.folder or "-")
+    print("Vaultmappen:", ", ".join(str(p) for p in vault_audio_folders(cfg)) or "-")
     while True:
-        for note in process_folder(cfg, transcriber, llm, min_age=0 if not args.watch else 10):
+        min_age = 10 if args.watch else 0
+        notes = process_folder(cfg, transcriber, llm, min_age=min_age)
+        notes += process_vault(cfg, transcriber, llm, min_age=min_age, include_old=args.all, log_=log_)
+        for note in notes:
             print(f"Verslag: {note}")
         if not args.watch:
+            if not notes:
+                print("Geen nieuwe opnames.")
             return
         time.sleep(cfg.inbox.interval_seconds)
 
@@ -308,8 +320,10 @@ def main(argv: list[str] | None = None) -> None:
     c.add_argument("--load", action="store_true",
                    help="Whisper echt laden (downloadt het model de eerste keer en test de GPU)")
     c.set_defaults(fn=cmd_check)
-    ib = sub.add_parser("inbox", help="opnames van de Android-app verwerken")
-    ib.add_argument("--folder", help="map die Syncthing vult (anders [inbox] folder)")
+    ib = sub.add_parser("inbox", help="opnames uit de inbox en de vault verwerken")
+    ib.add_argument("--folder", help="aparte map die Syncthing vult (anders [inbox] folder)")
+    ib.add_argument("--file", help="één geluidsbestand verwerken (blijft staan)")
+    ib.add_argument("--all", action="store_true", help="ook opnames van voor de eerste start")
     ib.add_argument("--watch", action="store_true", help="blijven wachten op nieuwe opnames")
     ib.set_defaults(fn=cmd_inbox)
     sub.add_parser("about", help="versie, modellen en paden tonen").set_defaults(fn=cmd_about)

@@ -170,20 +170,29 @@ def render_markdown(title: str, started: datetime, duration: float, summary: str
 
 
 def render_note(cfg: Config, title: str, started: datetime, duration: float, summary: str,
-                transcript: str, audio_path: Path | None = None, own_notes: str = "") -> str:
-    """Gewone Markdown, of in een Obsidian-vault: met frontmatter en ingesloten audio."""
+                transcript: str, audio_path: Path | None = None, own_notes: str = "",
+                vault_audio: str = "", source_note: str = "", external_audio: str = "") -> str:
+    """Gewone Markdown, of in een Obsidian-vault: met frontmatter en ingesloten audio.
+
+    vault_audio: pad van een opname die al in de vault staat (relatief), wordt ingesloten.
+    source_note: notitie waarin de opname oorspronkelijk stond, krijgt een link."""
     if not cfg.obsidian.vault:
         return render_markdown(title, started, duration, summary, transcript, own_notes)
     audio = ""
     embed = ""
-    if audio_path is not None:
+    if vault_audio:
+        audio, embed = vault_audio, f"![[{vault_audio}]]\n\n"
+    elif external_audio:
+        audio = external_audio  # buiten de vault: enkel het pad, Obsidian kan het niet insluiten
+    elif audio_path is not None:
         if cfg.obsidian.audio_in_vault:
             audio, embed = audio_path.name, f"![[{audio_path.name}]]\n\n"
         else:
             audio = str(audio_path)
     fm = frontmatter(title, started, fmt_ts(duration), cfg.obsidian.tags, audio)
+    source = f"Bron: [[{source_note}]]\n\n" if source_note else ""
     body = summary.strip() + "\n\n" if summary else ""
-    return (fm + f"# {title}\n\n" + embed + _own_notes_block(own_notes) + body
+    return (fm + f"# {title}\n\n" + source + embed + _own_notes_block(own_notes) + body
             + "## Transcriptie\n\n" + transcript + "\n")
 
 
