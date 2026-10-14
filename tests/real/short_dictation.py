@@ -25,19 +25,24 @@ from notetaker.dictation import DictationEngine, Hooks
 from notetaker.llm import OllamaLLM
 from notetaker.stt import FasterWhisperTranscriber, vocab_prompt
 
+# (wat ingesproken wordt, wat er verwacht wordt)
 SENTENCES = [
-    "Kom je mee?",
-    "Ja, prima.",
-    "Nee.",
-    "Dank je wel.",
-    "Oké, tot straks.",
-    "Bel me morgen terug.",
-    "Ik ben er over vijf minuten.",
-    "Het RUP is klaar.",
-    "Stuur dat naar Leiedal.",
-    "Morgen om negen uur in Kortrijk.",
-    "Kan je het verslag van de stuurgroep nog eens nalezen voor vrijdag?",
-    "We bespreken volgende week de effecten van het MER op de planning van het project.",
+    ("Kom je mee?", "Kom je mee?"),
+    ("Ja, prima.", "Ja, prima."),
+    ("Nee.", "Nee."),
+    ("Dank je wel.", "Dank je wel."),
+    ("Oké, tot straks.", "Oké, tot straks."),
+    ("Bel me morgen terug.", "Bel me morgen terug."),
+    ("Ik ben er over vijf minuten.", "Ik ben er over vijf minuten."),
+    ("Het RUP is klaar.", "Het RUP is klaar."),
+    ("Stuur dat naar Leiedal.", "Stuur dat naar Leiedal."),
+    ("Morgen om negen uur in Kortrijk.", "Morgen om negen uur in Kortrijk."),
+    ("Kan je het verslag van de stuurgroep nog eens nalezen voor vrijdag?",
+     "Kan je het verslag van de stuurgroep nog eens nalezen voor vrijdag?"),
+    ("We bespreken volgende week de effecten van het MER op de planning van het project.",
+     "We bespreken volgende week de effecten van het MER op de planning van het project."),
+    ("Euh, kan je mij morgen, euh, even bellen?", "Kan je mij morgen even bellen?"),
+    ("We vertrekken om drie uur, nee wacht, om vier uur.", "We vertrekken om vier uur."),
 ]
 
 
@@ -65,7 +70,11 @@ def words(text: str) -> list[str]:
 
 
 def score(expected: str, got: str) -> float:
-    return difflib.SequenceMatcher(None, words(expected), words(got)).ratio()
+    """Op letters, zodat 'Dankjewel' en 'Dank je wel' of '9' en 'negen' niet als fout tellen."""
+    def norm(t: str) -> str:
+        t = t.lower().replace("9", "negen").replace("5", "vijf")
+        return "".join(re.findall(r"\w", t))
+    return difflib.SequenceMatcher(None, norm(expected), norm(got)).ratio()
 
 
 def leaked(expected: str, got: str, terms: list[str]) -> bool:
@@ -127,7 +136,7 @@ def main() -> None:
     engine.transcriber.transcribe = spy
 
     rows, results = [], []
-    for i, sentence in enumerate(SENTENCES, 1):
+    for i, (sentence, expected) in enumerate(SENTENCES, 1):
         wav = out_dir / f"zin{i:02d}.wav"
         synthesize(voice_dir, sentence, wav)
         audio = load_audio(wav)
@@ -140,18 +149,19 @@ def main() -> None:
         r = {
             "zin": sentence, "duur_s": round(audio.size / SAMPLE_RATE, 1),
             "oud_whisper": old_raw, "oud_resultaat": old_out,
-            "oud_score": round(score(sentence, old_out), 2), "oud_lijst": leaked(sentence, old_out, cfg.dictionary),
+            "oud_score": round(score(expected, old_out), 2), "oud_lijst": leaked(sentence, old_out, cfg.dictionary),
             "nieuw_whisper": new_raw, "nieuw_resultaat": new_out,
-            "nieuw_score": round(score(sentence, new_out), 2),
+            "nieuw_score": round(score(expected, new_out), 2),
             "nieuw_lijst": leaked(sentence, new_out, cfg.dictionary),
         }
         results.append(r)
         print(json.dumps(r, ensure_ascii=False), flush=True)
-        rows.append(f"| {sentence} | {r['duur_s']} | {old_out or '(leeg)'} | {r['oud_score']} | "
-                    f"{new_out or '(leeg)'} | {r['nieuw_score']} |")
+        cell = lambda t: (t or "(leeg)").replace("\n", " / ")  # noqa: E731
+        rows.append(f"| {sentence} | {r['duur_s']} | {cell(old_out)} | {r['oud_score']} | "
+                    f"{cell(new_out)} | {r['nieuw_score']} |")
 
-    ok_old = sum(r["oud_score"] >= 0.6 and not r["oud_lijst"] for r in results)
-    ok_new = sum(r["nieuw_score"] >= 0.6 and not r["nieuw_lijst"] for r in results)
+    ok_old = sum(r["oud_score"] >= 0.85 and not r["oud_lijst"] for r in results)
+    ok_new = sum(r["nieuw_score"] >= 0.85 and not r["nieuw_lijst"] for r in results)
     leak_old = sum(r["oud_lijst"] for r in results)
     leak_new = sum(r["nieuw_lijst"] for r in results)
     report = "\n".join([
@@ -160,6 +170,8 @@ def main() -> None:
         "",
         f"- Oud: {ok_old}/{len(results)} correct, woordenlijst opgedoken in {leak_old} zinnen",
         f"- Nieuw: {ok_new}/{len(results)} correct, woordenlijst opgedoken in {leak_new} zinnen",
+        "",
+        "Correct = minstens 85 % gelijk aan de verwachte tekst (op letters) en geen woordenlijst.",
         "",
         "| Zin | Duur (s) | Oud resultaat | Score | Nieuw resultaat | Score |",
         "|---|---|---|---|---|---|",
@@ -173,6 +185,8 @@ def main() -> None:
             fh.write(report + "\n")
     if leak_new:
         sys.exit(f"Woordenlijst dook nog op in {leak_new} zinnen")
+    if ok_new < ok_old:
+        sys.exit(f"Nieuwe werkwijze scoort slechter ({ok_new} tegen {ok_old})")
 
 
 if __name__ == "__main__":
