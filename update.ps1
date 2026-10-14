@@ -22,8 +22,13 @@ function Say([string]$text, [string]$color = "Gray") {
     Write-Host $text -ForegroundColor $color
     Add-Content -Path $Log -Value ("{0:yyyy-MM-dd HH:mm:ss} {1}" -f (Get-Date), $text)
 }
+function App-Running {
+    return [bool](Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine -match "notetaker-app" })
+}
 function Start-App {
-    if (Test-Path $NtApp) { Start-Process $NtApp -WorkingDirectory $Root }
+    # Nooit een tweede exemplaar starten
+    if ((Test-Path $NtApp) -and -not (App-Running)) { Start-Process $NtApp -WorkingDirectory $Root }
 }
 function Fail([string]$text) {
     Say "FOUT: $text" "Red"
