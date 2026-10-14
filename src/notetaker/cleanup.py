@@ -37,9 +37,9 @@ Is er geen selectie, schrijf dan nieuwe tekst volgens de instructie.
 Geef uitsluitend de resulterende tekst terug, zonder inleiding of uitleg. Behoud de taal van de selectie, tenzij de instructie om een vertaling vraagt."""
 
 FILLERS = r"(?:euh+|eh+m*|uh+m*|um+|hm+|ehm+|uhm+)"
-# Whisper schrijft een Vlaamse "euh" vaak als "U,". Enkel los tussen komma's of aan het begin
+# Whisper schrijft een Vlaamse "euh" vaak als "U," of "Uw,". Enkel los tussen komma's of aan het begin
 # van een zin, zodat de beleefdheidsvorm ("Kan u mij bellen?", "Dank u, meneer") blijft staan.
-_U_FILLER = r"(?:(?<=^)|(?<=[,.?!]\s)|(?<=[,.?!]))u(?=,)"
+_U_FILLER = r"(?:(?<=^)|(?<=[,.?!]\s)|(?<=[,.?!]))uw?(?=,)"
 _FILLER_RE = re.compile(rf"(?:(?<!\w){FILLERS}(?!\w)|{_U_FILLER})[,.]?\s*",
                         re.IGNORECASE | re.MULTILINE)
 
@@ -97,12 +97,21 @@ def basic_cleanup(text: str) -> str:
 
 # Wanneer het taalmodel iets toevoegt. Whisper levert korte zinnen al met hoofdletters en
 # leestekens; een klein model maakt die dan eerder slechter (getest met gemma3:4b).
+_GAP = r"[\s,.!?]+"  # Whisper zet vaak leestekens tussen de woorden ("Nee, wacht,")
+
+
+def _phrases(*phrases: str) -> str:
+    return "|".join(p.replace(" ", _GAP) for p in phrases)
+
+
 _CORRECTION_RE = re.compile(
-    r"\b(nee wacht|wacht nee|ik bedoel|of nee|nee sorry|sorry|scratch that|correctie|of beter)\b",
+    r"\b(" + _phrases("nee wacht", "wacht nee", "ik bedoel", "of nee", "nee sorry", "sorry",
+                      "scratch that", "correctie", "of beter") + r")\b",
     re.IGNORECASE)
 _SPOKEN_PUNCT_RE = re.compile(
-    r"\b(komma|punt|vraagteken|uitroepteken|dubbele punt|nieuwe regel|nieuwe alinea|"
-    r"ten eerste|ten tweede|opsomming)\b", re.IGNORECASE)
+    r"\b(" + _phrases("komma", "punt", "vraagteken", "uitroepteken", "dubbele punt", "nieuwe regel",
+                      "nieuwe alinea", "ten eerste", "ten tweede", "opsomming") + r")\b",
+    re.IGNORECASE)
 LLM_MIN_WORDS = 25
 
 

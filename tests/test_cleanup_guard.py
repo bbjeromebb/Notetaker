@@ -71,3 +71,12 @@ def test_whisper_writes_flemish_euh_as_u():
     for polite in ("Kan u mij bellen?", "Dank u, meneer.", "Wilt u, als het kan, bellen?"):
         assert not cleanup.needs_llm(polite)
         assert clean(polite, FakeLLM("fout")) == polite
+
+
+def test_whisper_variants_from_real_test_reach_the_model():
+    """Run 4 met gemma3:12b: Whisper schreef 'Uw,' en 'Nee, wacht,' met leestekens ertussen."""
+    assert cleanup.needs_llm("Uw, kan je mij morgen? Uw, even bellen?")
+    assert cleanup.needs_llm("We vertrekken om 3 uur. Nee, wacht, om 4 uur.")
+    assert not cleanup.needs_llm("Is uw dossier klaar?")
+    out = clean("We vertrekken om 3 uur. Nee, wacht, om 4 uur.", FakeLLM("We vertrekken om 4 uur."))
+    assert out == "We vertrekken om 4 uur."
