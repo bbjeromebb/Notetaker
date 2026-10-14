@@ -115,8 +115,8 @@ class SettingsWindow:
         rec_box = ttk.LabelFrame(body, text="Opnames in de Obsidian-vault", padding=8)
         rec_box.grid(row=2, column=0, sticky="ew", pady=(0, 10))
         folders = self.cfg.inbox.vault_folders
-        self.vault_folders = tk.StringVar(
-            value=folders if isinstance(folders, str) else ", ".join(folders))
+        self.loaded_folders = [folders] if isinstance(folders, str) else [str(f) for f in folders]
+        self.vault_folders = tk.StringVar(value=", ".join(self.loaded_folders))
         ttk.Label(rec_box, text="Mappen").grid(row=0, column=0, sticky="w", **PAD)
         ttk.Entry(rec_box, textvariable=self.vault_folders, width=44).grid(row=0, column=1, sticky="w", **PAD)
         hint = ("Geluidsbestanden hier worden getranscribeerd en samengevat. Komma's tussen mappen, "
@@ -204,14 +204,21 @@ class SettingsWindow:
                 set_key(provider, "")
             elif value.strip():
                 set_key(provider, value.strip())
-        apply_choice(
-            self.config_path,
-            stt=self._key_of(self.stt.get(), self.stt_labels),
-            whisper_model=self.whisper.get().strip() or "large-v3-turbo",
-            llm_provider=self._provider_key(),
-            cleanup_model=self.cleanup.get(),
-            summary_model=self.summary.get(),
-            vault_folders=parse_folders(self.vault_folders.get()),
-        )
+        folders = parse_folders(self.vault_folders.get())
+        try:
+            apply_choice(
+                self.config_path,
+                stt=self._key_of(self.stt.get(), self.stt_labels),
+                whisper_model=self.whisper.get().strip() or "large-v3-turbo",
+                llm_provider=self._provider_key(),
+                cleanup_model=self.cleanup.get(),
+                summary_model=self.summary.get(),
+                vault_folders=None if folders == self.loaded_folders else folders,
+            )
+        except (OSError, ValueError) as e:
+            from tkinter import messagebox
+
+            messagebox.showerror("Notetaker", f"Instellingen niet bewaard: {e}", parent=self.win)
+            return
         self.win.destroy()
         self.on_saved()

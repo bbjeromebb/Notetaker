@@ -110,6 +110,8 @@ Notetaker volgt ook mappen in de vault op, standaard `Vault/Notetaker` en `Vault
 - **Andere opnames**, bijvoorbeeld van de opnamefunctie van Obsidian of een dictafoon-app: die blijven staan. Het verslag sluit ze in met `![[...]]`. Staat de opname in een notitie, dan worden de naam en de tekst van die notitie de titel en de eigen notities van het verslag, met een link `Bron: [[...]]` terug. Welke opnames al verwerkt zijn, staat in `%APPDATA%\Notetaker\verwerkt.json`.
 - Bij de eerste start onthoudt Notetaker het tijdstip; oudere opnames worden niet massaal verwerkt. `notetaker inbox --all` doet dat wel.
 - Conflictkopieën van Syncthing (`.sync-conflict-` in de naam) worden overgeslagen.
+- Mislukt een Android-opname, dan verschijnt `<naam>.ogg.fout.txt` met de reden, en de app toont "Fout op de pc". Verwijder dat bestand om het opnieuw te proberen.
+- Gebruik voor opnames en verslagen verschillende mappen. Een opnamemap in de verslagenmap (bv. `folder = "Notetaker"` onder `[obsidian]`) wordt overgeslagen; `notetaker check` en een melding bij de start wijzen daarop.
 
 Opnames van Obsidian zelf in dezelfde map laten belanden: **Settings > Files and links > Default location for new attachments > In the folder specified below**, met `Notetaker` als **Attachment folder path** (in de Nederlandse interface: Bestanden en links, standaardlocatie voor nieuwe bijlagen). Dat geldt voor alle bijlagen, ook afbeeldingen; die negeert Notetaker.
 

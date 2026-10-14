@@ -39,23 +39,58 @@ def _toml_value(value) -> str:
         return str(value)
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(_toml_value(v) for v in value) + "]"
-    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+    # JSON-tekst is ook geldige TOML: aanhalingstekens, backslashes en stuurtekens worden ontsnapt
+    return json.dumps(str(value), ensure_ascii=False).replace("\x7f", "\\u007f")
+
+
+def _value_end(text: str, pos: int) -> int:
+    """Einde van de waarde die op `pos` begint. Een lijst loopt tot de bijhorende ], ook over
+    meerdere regels; ] binnen tekst of commentaar telt niet mee. Anders: einde van de regel."""
+    if pos >= len(text) or text[pos] != "[":
+        nl = text.find("\n", pos)
+        return len(text) if nl < 0 else nl
+    depth, i = 0, pos
+    while i < len(text):
+        c = text[i]
+        if c == "#":
+            nl = text.find("\n", i)
+            i = len(text) if nl < 0 else nl
+            continue
+        if c in "\"'":
+            j = i + 1
+            while j < len(text) and text[j] != c and text[j] != "\n":
+                j += 2 if c == '"' and text[j] == "\\" else 1
+            i = j + 1
+            continue
+        if c == "[":
+            depth += 1
+        elif c == "]":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return len(text)
+
+
+def _replace_key(body: str, key: str, line: str) -> str | None:
+    m = re.search(rf"(?m)^{re.escape(key)}[ \t]*=[ \t]*", body)
+    if m is None:
+        return None
+    return body[: m.start()] + line + body[_value_end(body, m.end()):]
 
 
 def set_toml_value(config_path: Path, section: str, key: str, value) -> None:
-    """Zet één sleutel in een sectie van config.toml; commentaar en overige inhoud blijven staan."""
+    """Zet één sleutel in een sectie van config.toml; commentaar en overige inhoud blijven staan.
+    Zou het bestand ongeldig worden, dan blijft het ongewijzigd en volgt een ValueError."""
+    import tomllib
+
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    text = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    old = text = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
     line = f"{key} = {_toml_value(value)}"
-    # Een lijst mag over meerdere regels lopen: dan tot en met de sluitende ]
-    key_re = re.compile(rf"(?m)^{re.escape(key)}[ \t]*=[ \t]*(?:\[[^\]]*\]|.*$)")
     if not section:
         head_end = re.search(r"(?m)^\[", text)
         head = text[: head_end.start()] if head_end else text
-        if key_re.search(head):
-            head = key_re.sub(lambda _: line, head, count=1)
-        else:
-            head = line + "\n" + head
+        head = _replace_key(head, key, line) or line + "\n" + head
         text = head + (text[head_end.start():] if head_end else "")
     else:
         match = re.search(rf"(?ms)^\[{re.escape(section)}\][ \t]*\n(.*?)(?=^\[|\Z)", text)
@@ -63,11 +98,18 @@ def set_toml_value(config_path: Path, section: str, key: str, value) -> None:
             text = text.rstrip("\n") + ("\n\n" if text.strip() else "") + f"[{section}]\n{line}\n"
         else:
             body = match.group(1)
-            if key_re.search(body):
-                body = key_re.sub(lambda _: line, body, count=1)
-            else:
-                body = line + "\n" + body
+            body = _replace_key(body, key, line) or line + "\n" + body
             text = text[: match.start(1)] + body + text[match.end(1):]
+    try:
+        tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        try:
+            tomllib.loads(old)
+        except tomllib.TOMLDecodeError:
+            pass  # was al ongeldig: niet de schuld van deze wijziging
+        else:
+            raise ValueError(f"{section + '.' if section else ''}{key} niet aangepast: "
+                             f"{config_path.name} zou ongeldig worden ({e}).") from e
     config_path.write_text(text, encoding="utf-8")
 
 

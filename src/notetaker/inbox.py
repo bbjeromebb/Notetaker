@@ -132,6 +132,15 @@ def _walk(root: Path, extensions: set[str], exclude: Path | None = None):
                 yield here / name
 
 
+def _failed_marker(p: Path) -> Path:
+    return p.with_name(p.name + FAILED_SUFFIX)
+
+
+def _failed(p: Path) -> bool:
+    """Eerder mislukt: pas opnieuw proberen als de gebruiker de .fout.txt verwijdert."""
+    return _failed_marker(p).exists()
+
+
 def _is_ready(p: Path, now: float, min_age: float) -> bool:
     try:
         return now - p.stat().st_mtime >= min_age
@@ -148,7 +157,7 @@ def pending(folder: Path, min_age: float = 10.0, now: float | None = None) -> li
     for p in sorted(folder.iterdir()):
         if _skip_name(p.name) or p.suffix.lower() not in AUDIO_EXTENSIONS:
             continue  # Syncthing en de app schrijven eerst naar verborgen tijdelijke bestanden
-        if p.with_name(p.name + FAILED_SUFFIX).exists():
+        if _failed(p):
             continue
         if _is_ready(p, now, min_age):
             out.append(p)
@@ -193,6 +202,17 @@ def vault_audio_folders(cfg: Config) -> list[Path]:
     return [vault if f in WHOLE_VAULT else vault / f for f in _folder_names(cfg)]
 
 
+def folder_warning(cfg: Config) -> str:
+    """Opnamemappen in de verslagenmap worden overgeslagen: daar staan ook Notetakers eigen
+    opnames, en een Android-opname zou er na verwerking onder dezelfde naam blijven staan."""
+    own = cfg.meetings_dir
+    clash = [f for f in vault_audio_folders(cfg) if f == own or own in f.parents]
+    if not clash:
+        return ""
+    return (f"Opnamemap {clash[0].name} valt samen met de verslagenmap {own.name}; opnames daarin "
+            "worden niet verwerkt. Kies een andere map voor opnames of voor verslagen.")
+
+
 def ensure_vault_folder(cfg: Config) -> Path | None:
     """Maakt de eerste opnamemap in de vault aan (standaard `Notetaker`). Syncthing brengt de lege
     map naar de telefoon, zodat ze daar als inboxmap te kiezen is. De vault zelf wordt nooit aangemaakt."""
@@ -226,16 +246,11 @@ def vault_candidates(cfg: Config, log_: ProcessedLog, min_age: float = 10.0,
     for folder in vault_audio_folders(cfg):
         if not folder.is_dir():
             continue
-        # Valt de opnamemap samen met de verslagenmap, dan enkel de eigen opnames overslaan:
-        # die dragen dezelfde naam als hun verslag.
-        inside_own = folder == own or own in folder.parents
-        for p in _walk(folder, AUDIO_EXTENSIONS, exclude=None if inside_own else own):
+        for p in _walk(folder, AUDIO_EXTENSIONS, exclude=own):
             if p in seen:
                 continue
             seen.add(p)
-            if inside_own and p.parent == own and p.with_suffix(".md").exists():
-                continue
-            if not _is_ready(p, now, min_age) or log_.done(p):
+            if not _is_ready(p, now, min_age) or log_.done(p) or _failed(p):
                 continue
             if p.with_suffix(".json").exists():
                 out.append(p)  # Android-opname: altijd verwerken, ze verdwijnt daarna
@@ -273,6 +288,7 @@ def recording_for(cfg: Config, audio: Path) -> Recording:
 # --- verwerken -------------------------------------------------------------------------
 
 def process(cfg: Config, transcriber: Transcriber, llm: LLM | None, rec: Recording) -> Path:
+    marker = _failed_marker(rec.audio)  # vroeger mislukt: weg na een geslaagde poging
     audio = load_audio(rec.audio)
     duration = audio.size / SAMPLE_RATE
     segments = transcribe_file(cfg, transcriber, audio, speaker=cfg.meeting.mic_label)
@@ -304,6 +320,7 @@ def process(cfg: Config, transcriber: Transcriber, llm: LLM | None, rec: Recordi
             cfg, rec.title, rec.started, duration, summary, transcript, own_notes=rec.own_notes,
             vault_audio=rec.audio.relative_to(vault).as_posix() if in_vault else "",
             external_audio="" if in_vault else str(rec.audio), source_note=rec.source_note))
+        marker.unlink(missing_ok=True)
         return note
 
     audio_target = None
@@ -319,11 +336,12 @@ def process(cfg: Config, transcriber: Transcriber, llm: LLM | None, rec: Recordi
         rec.audio.unlink()
     if rec.sidecar is not None:
         rec.sidecar.unlink(missing_ok=True)
+    marker.unlink(missing_ok=True)
     return note
 
 
 def _mark_failed(audio: Path, error: Exception) -> None:
-    audio.with_name(audio.name + FAILED_SUFFIX).write_text(
+    _failed_marker(audio).write_text(
         f"{datetime.now():%Y-%m-%d %H:%M} {error}\nVerwijder dit bestand om opnieuw te proberen.\n",
         encoding="utf-8")
 
@@ -401,10 +419,16 @@ class InboxWatcher:
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
+        """Bij de start en na het kiezen van een vault: maakt de opnamemap aan en start de lus één keer."""
         if not self.cfg.inbox.folder and not self.cfg.obsidian.vault:
             return
         ensure_vault_since(self.cfg, self.config_path)
         ensure_vault_folder(self.cfg)
+        warning = folder_warning(self.cfg)
+        if warning:
+            log.warning(warning)
+        if self._thread is not None and self._thread.is_alive():
+            return
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
         log.info("Opnames opvolgen: inbox %s, vaultmappen %s", self.cfg.inbox.folder or "-",

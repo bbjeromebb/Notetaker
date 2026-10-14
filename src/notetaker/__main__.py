@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import re
 import sys
@@ -154,13 +153,15 @@ def cmd_check(cfg, args) -> None:
             print(f"  {e}")
     else:
         print(f"  {cfg.llm.backend}")
-    from .inbox import vault_audio_folders
+    from .inbox import folder_warning, vault_audio_folders
 
     print("Opnames opvolgen")
     print(f"  aparte inbox: {cfg.inbox.folder or 'geen'}")
     folders = vault_audio_folders(cfg)
     print("  vaultmappen:  " + (", ".join(str(p) + ("" if p.is_dir() else " (ontbreekt)") for p in folders)
                                 if folders else "geen (geen vault)"))
+    if folder_warning(cfg):
+        print(f"  LET OP: {folder_warning(cfg)}")
     print("Opslag")
     print(f"  verslagen: {cfg.meetings_dir}")
     print(f"  opnames:   {cfg.audio_dir if cfg.meeting.keep_audio else 'niet bewaard'}"
@@ -251,13 +252,11 @@ def cmd_key(cfg, args) -> None:
 def parse_value(raw: str):
     text = raw.strip()
     if text.startswith("[") and text.endswith("]"):
-        # Lijst: ["Notetaker", "Opnames"]. PowerShell laat de aanhalingstekens soms vallen,
-        # dus [Notetaker, Opnames] werkt ook.
-        try:
-            value = json.loads(text)
-        except ValueError:
-            value = [v.strip().strip("'\"") for v in text[1:-1].split(",")]
-        return [v for v in value if v != ""]
+        # Lijst van teksten: ["Notetaker", "Opnames"] of [Notetaker, Opnames] (PowerShell laat de
+        # aanhalingstekens soms vallen). Geen JSON: backslashes in Windows-paden blijven letterlijk.
+        items = [v.strip() for v in text[1:-1].split(",")]
+        items = [v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v for v in items]
+        return [v for v in items if v]
     low = raw.lower()
     if low in ("true", "false"):
         return low == "true"
@@ -274,8 +273,10 @@ def cmd_set(cfg, args) -> None:
 
     section, _, key = args.key.rpartition(".")
     path = args.config or config_mod.default_path()
-    set_toml_value(path, section, key, parse_value(args.value))
-    config_mod.load(path)  # controleert dat het bestand geldig blijft
+    try:
+        set_toml_value(path, section, key, parse_value(args.value))  # weigert een ongeldig resultaat
+    except ValueError as e:
+        sys.exit(str(e))
     print(f"{args.key} = {args.value}  ({path})")
 
 

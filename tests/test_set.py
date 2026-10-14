@@ -23,7 +23,10 @@ def test_set_on_example_config_keeps_comments(tmp_path):
 def test_parse_value_lists():
     assert parse_value('["Notetaker", "Opnames"]') == ["Notetaker", "Opnames"]
     assert parse_value("[Notetaker, Opnames]") == ["Notetaker", "Opnames"]  # PowerShell zonder aanhalingstekens
-    assert parse_value("[]") == []
+    assert parse_value("[]") == [] and parse_value('["", "a"]') == ["a"]
+    # Windows-paden: backslashes blijven letterlijk, getallen blijven tekst
+    assert parse_value('["Notetaker", "Werk\\notulen"]') == ["Notetaker", "Werk\\notulen"]
+    assert parse_value("[2026]") == ["2026"]
 
 
 def test_set_list_replaces_multiline_array(tmp_path):
@@ -34,3 +37,24 @@ def test_set_list_replaces_multiline_array(tmp_path):
     cfg = config.load(p)
     assert cfg.inbox.vault_folders == ["Notetaker", "Bijlagen"] and cfg.inbox.interval_seconds == 20
     assert "# eigen commentaar" in p.read_text(encoding="utf-8")
+
+
+def test_set_list_ignores_brackets_in_strings_and_comments(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text('[inbox]\nvault_folders = [\n  "Notetaker",  # Android-app [inbox]\n  "Opnames [oud]",\n]\n'
+                 '[obsidian]\nfolder = "Vergaderingen"\n', encoding="utf-8")
+    set_toml_value(p, "inbox", "vault_folders", ["Notetaker", "Werk\\notulen", "a\nb"])
+    cfg = config.load(p)
+    assert cfg.inbox.vault_folders == ["Notetaker", "Werk\\notulen", "a\nb"]
+    assert cfg.obsidian.folder == "Vergaderingen"
+
+
+def test_set_refuses_to_break_config(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text('[llm]\nsnippet = """\nmeerdere\nregels\n"""\n', encoding="utf-8")
+    before = p.read_text(encoding="utf-8")
+    import pytest
+
+    with pytest.raises(ValueError):
+        set_toml_value(p, "llm", "snippet", "kort")
+    assert p.read_text(encoding="utf-8") == before

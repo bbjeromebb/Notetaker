@@ -5,8 +5,9 @@ from datetime import datetime
 
 from notetaker import config
 from notetaker.audio import write_wav
-from notetaker.inbox import (ProcessedLog, ensure_vault_folder, ensure_vault_since, pending, process_file,
-                             process_vault, started_from_name, vault_audio_folders, vault_candidates)
+from notetaker.inbox import (InboxWatcher, ProcessedLog, ensure_vault_folder, ensure_vault_since,
+                             folder_warning, pending, process_file, process_vault, started_from_name,
+                             vault_audio_folders, vault_candidates)
 
 from test_core import FakeLLM, FakeTranscriber, tone
 
@@ -139,7 +140,7 @@ def test_syncthing_conflict_copies_are_skipped(tmp_path):
     assert pending(vault / "Opnames") == [good]
 
 
-def test_recordings_folder_same_as_meetings_folder(tmp_path):
+def test_recordings_folder_inside_meetings_folder_is_refused(tmp_path):
     cfg, vault, log_ = setup(tmp_path)
     cfg.obsidian.folder = "Notetaker"
     folder = vault / "Notetaker"
@@ -148,8 +149,44 @@ def test_recordings_folder_same_as_meetings_folder(tmp_path):
     write_wav(audio, tone(2))
     audio.with_suffix(".json").write_text(json.dumps({"title": "Werfoverleg"}))
     _age(audio)
-    notes = process_vault(cfg, FakeTranscriber("We bekijken de werf."), None, log_=log_)
-    assert [n.name for n in notes] == ["2026-10-14_0930_Werfoverleg.md"]
-    # De opname staat nu naast het verslag, met dezelfde naam: niet opnieuw verwerken
-    assert audio.exists() and not audio.with_suffix(".json").exists()
+    # Zelfde map voor verslagen en opnames: eigen opnames zouden opnieuw verwerkt worden
+    assert "Notetaker" in folder_warning(cfg)
     assert vault_candidates(cfg, log_) == []
+    cfg.obsidian.folder = "Vergaderingen"
+    assert folder_warning(cfg) == "" and vault_candidates(cfg, log_) == [audio]
+
+
+def test_failed_android_recording_waits_for_user(tmp_path):
+    cfg, vault, log_ = setup(tmp_path)
+    audio = vault / "Opnames" / "2026-10-14_0930_Kapot.wav"
+    audio.write_bytes(b"geen geluid")
+    audio.with_suffix(".json").write_text(json.dumps({"title": "Kapot"}))
+    _age(audio)
+    assert process_vault(cfg, FakeTranscriber("x"), None, log_=log_) == []
+    marker = audio.with_name(audio.name + ".fout.txt")
+    assert marker.exists() and vault_candidates(cfg, log_) == []  # niet elke 15 s opnieuw
+    # Gebruiker vervangt de opname en verwijdert de markering: geslaagd, markering weg
+    marker.unlink()
+    write_wav(audio, tone(2))
+    _age(audio)
+    marker.write_text("oud")
+    process_file(cfg, FakeTranscriber("Hallo."), None, audio, log_)
+    assert not marker.exists()
+
+
+def test_watcher_starts_after_vault_is_chosen(tmp_path):
+    cfg = config.Config()
+    cfg.meeting.output_dir = str(tmp_path / "docs")
+    w = InboxWatcher(cfg, FakeTranscriber("x"), None, config_path=tmp_path / "config.toml")
+    w.log = ProcessedLog(tmp_path / "verwerkt.json")
+    w.start()
+    assert w._thread is None
+    vault = tmp_path / "Vault"
+    vault.mkdir()
+    cfg.obsidian.vault = str(vault)
+    w.start()
+    thread = w._thread
+    assert thread is not None and thread.is_alive() and (vault / "Notetaker").is_dir()
+    w.start()
+    assert w._thread is thread  # geen tweede lus
+    w.stop()

@@ -18,7 +18,7 @@ from .llm import build_llm
 from .meeting import MeetingRecorder
 from .obsidian import is_vault, known_vaults, set_vault
 from .overlay import Overlay, UiThread
-from .inbox import InboxWatcher
+from .inbox import InboxWatcher, folder_warning
 from .stt import SerializedTranscriber, build_transcriber
 from . import updater
 
@@ -148,6 +148,13 @@ class TrayApp:
         self.cfg.obsidian.vault = vault
         self._refresh_menu()
         self._notify(f"Verslagen naar {self.cfg.meetings_dir}")
+        self.inbox.start()  # opnamemap aanmaken en opvolgen, ook als er bij de start geen vault was
+        self._warn_folders()
+
+    def _warn_folders(self) -> None:
+        warning = folder_warning(self.cfg)
+        if warning:
+            self._notify(warning)
 
     def browse_vault(self) -> None:
         folder = self.ui.ask_directory("Kies een Obsidian-vault", self.cfg.obsidian.vault)
@@ -223,6 +230,9 @@ class TrayApp:
                 self.overlay = None
         self.listener.start()
         self.inbox.start()
+        warn = threading.Timer(5, self._warn_folders)  # pas als het pictogram in het systeemvak staat
+        warn.daemon = True
+        warn.start()
         check = threading.Timer(60, self._check_updates_quietly)
         check.daemon = True
         check.start()
