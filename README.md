@@ -64,6 +64,10 @@ Kies de vault via het systeemvak (Verslagen opslaan in > vault) of met `notetake
 - actiepunten als taken (`- [ ] Wat (wie, deadline)`), bruikbaar in de Tasks-plugin
 - de opname als Opus (`.ogg`, ongeveer 15 MB per uur), standaard buiten de vault in `Documenten\Notetaker\audio`. Met `audio_in_vault = true` komt de opname naast de notitie en speelt ze af in Obsidian via `![[...]]`.
 
+Tijdens de opname staat bovenaan de notitie een sectie **Mijn notities**. Wat je daar in Obsidian typt, blijft bewaard bij elke tussentijdse update van de transcriptie en gaat mee naar het taalmodel voor het verslag. Eigen tussenkoppen kunnen, zolang ze niet "Verslag", "Samenvatting" of "Transcriptie" heten.
+
+Notities worden geschreven via een tijdelijk bestand en in één stap hernoemd; opnames worden eerst volledig buiten de vault gecodeerd en daarna verplaatst. Syncthing en Obsidian zien zo nooit een half geschreven bestand.
+
 Map, tags en taakformaat staan onder `[obsidian]` in de configuratie.
 
 ## Configuratie

@@ -13,7 +13,7 @@ import numpy as np
 from .audio import SAMPLE_RATE, find_split_point, rms, write_audio
 from .config import Config
 from .llm import LLM, LLMError
-from .obsidian import frontmatter
+from .obsidian import atomic_write_text, frontmatter
 from .stt import Segment, Transcriber, vocab_prompt
 
 log = logging.getLogger(__name__)
@@ -117,9 +117,13 @@ def split_transcript(transcript: str, max_chars: int) -> list[str]:
 
 
 def summarize(llm: LLM, transcript: str, *, model: str, effort: str, title: str = "",
-              chunk_chars: int = 24000, tasks: bool = False) -> str:
+              chunk_chars: int = 24000, tasks: bool = False, own_notes: str = "") -> str:
     """Kort transcript: één oproep. Lang transcript: eerst notities per deel, dan één verslag."""
     head = f"Titel: {title}\n\n" if title else ""
+    if own_notes.strip():
+        head += (f"<notities_gebruiker>\n{own_notes.strip()}\n</notities_gebruiker>\n\n"
+                 "De gebruiker noteerde dit zelf tijdens de vergadering: verwerk het in het verslag "
+                 "en geef het voorrang bij twijfel over wat de transcriptie bedoelt.\n\n")
     parts = split_transcript(transcript, chunk_chars)
     if len(parts) == 1:
         return llm.complete(summary_system(tasks), f"{head}<transcriptie>\n{transcript}\n</transcriptie>",
@@ -138,20 +142,38 @@ def summarize(llm: LLM, transcript: str, *, model: str, effort: str, title: str 
         model=model, effort=effort, max_tokens=8000)
 
 
+OWN_NOTES = "## Mijn notities"
+LIVE_PLACEHOLDER = "## Verslag\n\n_Opname loopt. Het verslag volgt na het stoppen._"
+# Koppen die de app zelf beheert: de eigen notities lopen tot de eerste daarvan
+_MANAGED = ("## Verslag", "## Samenvatting", "## Transcriptie")
+_OWN_NOTES_RE = re.compile(
+    r"(?ms)^## Mijn notities[ \t]*\n(.*?)(?=^(?:" + "|".join(map(re.escape, _MANAGED)) + r")[ \t]*$|\Z)")
+
+
+def extract_own_notes(text: str) -> str:
+    """Wat de gebruiker zelf onder "Mijn notities" typte, zodat een herschrijving het niet wist."""
+    match = _OWN_NOTES_RE.search(text)
+    return match.group(1).strip() if match else ""
+
+
+def _own_notes_block(own_notes: str) -> str:
+    return f"{OWN_NOTES}\n\n" + (own_notes.strip() + "\n\n" if own_notes.strip() else "")
+
+
 def render_markdown(title: str, started: datetime, duration: float, summary: str,
-                    transcript: str) -> str:
+                    transcript: str, own_notes: str = "") -> str:
     head = (f"# {title}\n\n"
             f"- Datum: {started:%d/%m/%Y %H:%M}\n"
             f"- Duur: {fmt_ts(duration)}\n\n")
     body = summary.strip() + "\n\n" if summary else ""
-    return head + body + "## Transcriptie\n\n" + transcript + "\n"
+    return head + _own_notes_block(own_notes) + body + "## Transcriptie\n\n" + transcript + "\n"
 
 
 def render_note(cfg: Config, title: str, started: datetime, duration: float, summary: str,
-                transcript: str, audio_path: Path | None = None) -> str:
+                transcript: str, audio_path: Path | None = None, own_notes: str = "") -> str:
     """Gewone Markdown, of in een Obsidian-vault: met frontmatter en ingesloten audio."""
     if not cfg.obsidian.vault:
-        return render_markdown(title, started, duration, summary, transcript)
+        return render_markdown(title, started, duration, summary, transcript, own_notes)
     audio = ""
     embed = ""
     if audio_path is not None:
@@ -161,7 +183,8 @@ def render_note(cfg: Config, title: str, started: datetime, duration: float, sum
             audio = str(audio_path)
     fm = frontmatter(title, started, fmt_ts(duration), cfg.obsidian.tags, audio)
     body = summary.strip() + "\n\n" if summary else ""
-    return fm + f"# {title}\n\n" + embed + body + "## Transcriptie\n\n" + transcript + "\n"
+    return (fm + f"# {title}\n\n" + embed + _own_notes_block(own_notes) + body
+            + "## Transcriptie\n\n" + transcript + "\n")
 
 
 def safe_filename(text: str) -> str:
@@ -258,15 +281,21 @@ class MeetingRecorder:
     def transcript(self) -> str:
         return format_transcript(self.segments())
 
+    def own_notes(self) -> str:
+        if self.live_path is None or not self.live_path.exists():
+            return ""
+        try:
+            return extract_own_notes(self.live_path.read_text(encoding="utf-8"))
+        except OSError:
+            return ""
+
     def _write_live(self) -> None:
         if self.live_path is None or self.started is None:
             return
         duration = (datetime.now() - self.started).total_seconds()
-        self.live_path.write_text(
-            render_note(self.cfg, self.title, self.started, duration, "_Opname loopt..._",
-                        self.transcript()),
-            encoding="utf-8",
-        )
+        atomic_write_text(self.live_path, render_note(
+            self.cfg, self.title, self.started, duration, LIVE_PLACEHOLDER, self.transcript(),
+            own_notes=self.own_notes()))
 
     def stop(self) -> Path:
         self._stop.set()
@@ -282,19 +311,22 @@ class MeetingRecorder:
         if self.audio_path is not None and not self._save_audio():
             self.audio_path = None
         transcript = self.transcript()
+        own_notes = self.own_notes()
         summary = ""
         if self.llm is not None and transcript.strip():
             try:
                 summary = summarize(self.llm, transcript, model=self.cfg.llm.summary_model,
                                     effort=self.cfg.llm.summary_effort, title=self.title,
                                     chunk_chars=self.cfg.llm.summary_chunk_chars,
-                                    tasks=bool(self.cfg.obsidian.vault and self.cfg.obsidian.tasks))
+                                    tasks=bool(self.cfg.obsidian.vault and self.cfg.obsidian.tasks),
+                                    own_notes=own_notes)
             except LLMError as e:
                 log.error("Samenvatting mislukt: %s", e)
                 summary = f"_Samenvatting mislukt: {e}. Gebruik later 'notetaker summarize'._"
-        self.live_path.write_text(
-            render_note(self.cfg, self.title, self.started, duration, summary, transcript,
-                        self.audio_path), encoding="utf-8")
+        # Opnieuw lezen: de gebruiker kan nog getypt hebben terwijl het verslag gemaakt werd
+        atomic_write_text(self.live_path, render_note(
+            self.cfg, self.title, self.started, duration, summary, transcript, self.audio_path,
+            own_notes=self.own_notes() or own_notes))
         return self.live_path
 
     def _save_audio(self) -> bool:

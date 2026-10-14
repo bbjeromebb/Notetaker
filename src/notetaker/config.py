@@ -86,7 +86,7 @@ class ObsidianConfig:
     folder: str = "Vergaderingen"
     tags: list[str] = field(default_factory=lambda: ["vergadering"])
     tasks: bool = True  # actiepunten als Obsidian-taken (- [ ]) in plaats van een tabel
-    audio_in_vault: bool = False  # WAV-bestanden zijn groot; standaard buiten de vault
+    audio_in_vault: bool = False  # standaard buiten de vault (Git-vaults); true voor Syncthing/OneDrive
 
 
 @dataclass

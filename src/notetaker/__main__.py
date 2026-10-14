@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import config as config_mod
+from .obsidian import atomic_write_text
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -69,14 +70,14 @@ def cmd_transcribe(cfg, args) -> None:
         out = cfg.meetings_dir / f"{started:%Y-%m-%d_%H%M}_{safe_filename(src.stem)}.md"
     else:
         out = src.with_suffix(".md")
-    out.write_text(render_note(cfg, src.stem, started, audio.size / 16000, summary, transcript,
-                               src.resolve()), encoding="utf-8")
+    atomic_write_text(out, render_note(cfg, src.stem, started, audio.size / 16000, summary,
+                                       transcript, src.resolve()))
     print(f"Geschreven: {out}")
 
 
 def cmd_summarize(cfg, args) -> None:
     from .llm import build_llm
-    from .meeting import summarize
+    from .meeting import extract_own_notes, summarize
 
     path = Path(args.file)
     text = path.read_text(encoding="utf-8")
@@ -87,9 +88,10 @@ def cmd_summarize(cfg, args) -> None:
         sys.exit("Samenvatten vereist een [llm] backend, bv. \"ollama\".")
     summary = summarize(llm, transcript, model=cfg.llm.summary_model, effort=cfg.llm.summary_effort,
                         title=path.stem, chunk_chars=cfg.llm.summary_chunk_chars,
-                        tasks=bool(cfg.obsidian.vault and cfg.obsidian.tasks))
+                        tasks=bool(cfg.obsidian.vault and cfg.obsidian.tasks),
+                        own_notes=extract_own_notes(text))
     out = path.with_name(path.stem + "_verslag.md")
-    out.write_text(summary + "\n", encoding="utf-8")
+    atomic_write_text(out, summary + "\n")
     print(f"Geschreven: {out}")
 
 

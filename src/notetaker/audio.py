@@ -198,20 +198,29 @@ def write_opus(path: Path, audio: np.ndarray, sr: int = SAMPLE_RATE, bitrate: in
 
 
 def write_audio(path: Path, audio: np.ndarray, fmt: str = "opus", bitrate: int = 32000) -> Path:
-    """Schrijft Opus (.ogg) of WAV; valt terug op WAV als Opus niet lukt. Geeft het echte pad terug."""
-    path = Path(path)
-    if fmt == "opus":
-        target = path.with_suffix(".ogg")
-        try:
-            write_opus(target, audio, bitrate=bitrate)
-            return target
-        except Exception as e:  # PyAV ontbreekt of encoder niet beschikbaar
-            import logging
+    """Schrijft Opus (.ogg) of WAV; valt terug op WAV als Opus niet lukt. Geeft het echte pad terug.
 
-            logging.getLogger(__name__).warning("Opus mislukt (%s), opslaan als WAV.", e)
-            target.unlink(missing_ok=True)
-    target = path.with_suffix(".wav")
-    write_wav(target, audio)
+    Het bestand wordt eerst volledig in de tijdelijke map van het systeem geschreven en pas daarna
+    naar de doelmap verplaatst, zodat Syncthing geen half gecodeerde opname synchroniseert."""
+    import logging
+    import shutil
+    import tempfile
+
+    path = Path(path)
+    with tempfile.TemporaryDirectory(prefix="notetaker-") as tmpdir:
+        tmp = Path(tmpdir) / "opname"
+        target = path.with_suffix(".wav")
+        if fmt == "opus":
+            try:
+                write_opus(tmp, audio, bitrate=bitrate)
+                target = path.with_suffix(".ogg")
+            except Exception as e:  # PyAV ontbreekt of encoder niet beschikbaar
+                logging.getLogger(__name__).warning("Opus mislukt (%s), opslaan als WAV.", e)
+                tmp.unlink(missing_ok=True)
+        if not tmp.exists():
+            write_wav(tmp, audio)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(tmp), str(target))
     return target
 
 

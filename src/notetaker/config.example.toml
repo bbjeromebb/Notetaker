@@ -62,7 +62,7 @@ audio_format = "opus"   # .ogg, ongeveer 15 MB per uur; "wav" = ongeveer 115 MB 
 folder = "Vergaderingen"
 tags = ["vergadering"]
 tasks = true            # actiepunten als "- [ ] taak" (werkt met Obsidian Tasks)
-audio_in_vault = false  # true = WAV naast de notitie, ingesloten met ![[...]]
+audio_in_vault = false  # true = opname naast de notitie, afspeelbaar via ![[...]]
 
 [replacements]
 "lei dal" = "Leiedal"

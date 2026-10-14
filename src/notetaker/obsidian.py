@@ -54,6 +54,15 @@ def set_vault(config_path: Path, vault: str) -> None:
     config_path.write_text(text, encoding="utf-8")
 
 
+def atomic_write_text(path: Path, text: str) -> None:
+    """Schrijft eerst naar een verborgen tijdelijk bestand en hernoemt dan in één stap.
+    Syncthing en Obsidian zien zo nooit een half geschreven notitie."""
+    path = Path(path)
+    tmp = path.with_name(f".{path.name}.notetaker-tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def frontmatter(title: str, started: datetime, duration: str, tags: list[str],
                 audio: str = "") -> str:
     lines = ["---", f"title: {json.dumps(title, ensure_ascii=False)}",
