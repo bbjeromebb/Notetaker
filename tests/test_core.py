@@ -236,7 +236,7 @@ def test_meeting_recorder_end_to_end(tmp_path):
     md = path.read_text(encoding="utf-8")
     assert "# Projectoverleg" in md and "## Samenvatting" in md
     assert "## Transcriptie" in md and "We plannen de workshop." in md
-    assert path.with_suffix(".wav").exists()
+    assert rec.audio_path == path.with_suffix(".ogg") and rec.audio_path.exists()
     assert "<transcriptie>" in llm.calls[0][1]
 
 

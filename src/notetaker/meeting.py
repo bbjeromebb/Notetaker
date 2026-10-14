@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .audio import SAMPLE_RATE, find_split_point, rms, write_wav
+from .audio import SAMPLE_RATE, find_split_point, rms, write_audio
 from .config import Config
 from .llm import LLM, LLMError
 from .obsidian import frontmatter
@@ -208,7 +208,8 @@ class MeetingRecorder:
         self.out_dir.mkdir(parents=True, exist_ok=True)
         stem = f"{self.started:%Y-%m-%d_%H%M}_{safe_filename(self.title)}"
         self.live_path = self.out_dir / f"{stem}.md"
-        self.audio_path = self.audio_dir / f"{stem}.wav" if self.cfg.meeting.keep_audio else None
+        ext = ".ogg" if self.cfg.meeting.audio_format == "opus" else ".wav"
+        self.audio_path = self.audio_dir / f"{stem}{ext}" if self.cfg.meeting.keep_audio else None
         for ch in self.channels:
             ch.recorder.start()
         self._stop.clear()
@@ -307,7 +308,8 @@ class MeetingRecorder:
             mix[: t.size] += t
         peak = float(np.max(np.abs(mix))) or 1.0
         self.audio_path.parent.mkdir(parents=True, exist_ok=True)
-        write_wav(self.audio_path, mix / max(peak, 1.0))
+        self.audio_path = write_audio(self.audio_path, mix / max(peak, 1.0),
+                                      self.cfg.meeting.audio_format, self.cfg.meeting.audio_bitrate)
         return True
 
 

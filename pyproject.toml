@@ -23,6 +23,8 @@ dependencies = [
 api = ["openai>=1.40"]
 claude = ["anthropic>=1.0"]
 dev = ["pytest>=8"]
+# NVIDIA-bibliotheken voor Whisper op de GPU (CUDA 12, cuDNN 9)
+gpu = ["nvidia-cublas-cu12", "nvidia-cudnn-cu12>=9,<10"]
 
 [project.scripts]
 notetaker = "notetaker.__main__:main"

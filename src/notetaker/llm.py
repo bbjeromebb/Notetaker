@@ -50,11 +50,18 @@ class OllamaLLM:
         self.num_ctx = cfg.num_ctx
         self.temperature = cfg.temperature
         self.keep_alive = cfg.keep_alive
+        self.num_gpu = cfg.num_gpu
 
-    def _post(self, path: str, payload: dict, timeout: float) -> dict:
+    def _options(self, **extra) -> dict:
+        opts = {"num_ctx": self.num_ctx, "temperature": self.temperature, **extra}
+        if self.num_gpu >= 0:
+            opts["num_gpu"] = self.num_gpu
+        return opts
+
+    def _post(self, path: str, payload: dict | None, timeout: float) -> dict:
         req = urllib.request.Request(
-            self.url + path, data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"}, method="POST",
+            self.url + path, data=None if payload is None else json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="GET" if payload is None else "POST",
         )
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -62,7 +69,8 @@ class OllamaLLM:
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")
             if e.code == 404:
-                raise LLMError(f"Model niet gevonden in Ollama. Voer 'ollama pull {payload.get('model')}' uit. ({detail})") from e
+                model = (payload or {}).get("model")
+                raise LLMError(f"Model niet gevonden in Ollama. Voer 'ollama pull {model}' uit. ({detail})") from e
             raise LLMError(f"Ollama-fout {e.code}: {detail}") from e
         except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
             raise LLMError(f"Ollama niet bereikbaar op {self.url}. Draait Ollama? ({e})") from e
@@ -74,14 +82,18 @@ class OllamaLLM:
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
             "stream": False,
             "keep_alive": self.keep_alive,
-            "options": {"num_ctx": self.num_ctx, "temperature": self.temperature,
-                        "num_predict": max_tokens},
+            "options": self._options(num_predict=max_tokens),
         }, timeout=900)
         return strip_think(data.get("message", {}).get("content", ""))
 
     def warmup(self, model: str) -> None:
         """Laadt het model alvast in het geheugen, zodat het eerste dictee niet traag is."""
-        self._post("/api/generate", {"model": model, "keep_alive": self.keep_alive}, timeout=300)
+        self._post("/api/generate", {"model": model, "keep_alive": self.keep_alive,
+                                     "options": self._options()}, timeout=300)
+
+    def models(self) -> list[str]:
+        """Namen van de lokaal geïnstalleerde modellen."""
+        return [m["name"] for m in self._post("/api/tags", None, timeout=10).get("models", [])]
 
 
 class OpenAICompatibleLLM:

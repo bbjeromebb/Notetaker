@@ -18,7 +18,18 @@ ollama pull gemma3:4b    # opkuis van dictee, ~3,3 GB
 ollama pull gemma3:12b   # vergaderverslagen, ~8 GB (minder dan 16 GB RAM: gebruik gemma3:4b)
 ```
 
-De eerste start downloadt het Whisper-model (ongeveer 1,6 GB voor `large-v3-turbo`). Met een NVIDIA-GPU: installeer CUDA 12 en cuDNN 9, dan kiest `device = "auto"` de GPU. Spraakherkenning en taalmodel draaien dan allebei lokaal: geen kosten, geen audio of tekst naar buiten.
+De eerste start downloadt het Whisper-model (ongeveer 1,6 GB voor `large-v3-turbo`). Spraakherkenning en taalmodel draaien allebei lokaal: geen kosten, geen audio of tekst naar buiten.
+
+### NVIDIA-GPU (bv. GeForce MX550)
+
+```powershell
+pip install -e ".[gpu]"   # cuBLAS (CUDA 12) en cuDNN 9 als pip-pakketten
+notetaker check           # toont of Whisper op de GPU of de CPU draait
+```
+
+De app zoekt de NVIDIA-DLL's zelf op en valt terug op de CPU als ze ontbreken of als het videogeheugen tekortschiet, in plaats van te crashen. Whisper draait op de GPU in `int8_float16`, wat in 2 GB past. Werkt de pip-route niet, dan bevat het archief van [whisper-standalone-win](https://github.com/Purfview/whisper-standalone-win/releases) dezelfde DLL's; zet die in een map die in `PATH` staat.
+
+Bij 2 GB videogeheugen passen Whisper en het taalmodel niet samen op de kaart. Zet daarom in de configuratie `[llm] num_gpu = 0`: Ollama rekent dan op de CPU en Whisper houdt de GPU. Met minder dan 16 GB werkgeheugen: `summary_model = "gemma3:4b"`.
 
 ## Gebruik
 
@@ -39,10 +50,11 @@ notetaker summarize verslag.md
 notetaker vault "C:\Users\naam\Documents\MijnVault"   # verslagen in Obsidian
 notetaker vault                        # huidige en bekende vaults tonen
 notetaker vault --off                  # terug naar Documenten\Notetaker
+notetaker check                        # GPU, Ollama-modellen en opslagmappen controleren
 notetaker devices                      # audioapparaten tonen
 ```
 
-Een vergadering levert één Markdown-bestand op met samenvatting, besproken punten, beslissingen, actiepunten, open vragen en de volledige transcriptie met tijdstempels, plus een `.wav` van de opname. Tijdens de opname groeit de transcriptie live in hetzelfde bestand.
+Een vergadering levert één Markdown-bestand op met samenvatting, besproken punten, beslissingen, actiepunten, open vragen en de volledige transcriptie met tijdstempels, plus de opname als `.ogg` (Opus; `audio_format = "wav"` voor WAV). Tijdens de opname groeit de transcriptie live in hetzelfde bestand.
 
 ## Obsidian
 
@@ -50,7 +62,7 @@ Kies de vault via het systeemvak (Verslagen opslaan in > vault) of met `notetake
 
 - YAML-frontmatter (`title`, `date`, `time`, `duration`, `type`, `tags`, `audio`), bruikbaar in Dataview en Bases
 - actiepunten als taken (`- [ ] Wat (wie, deadline)`), bruikbaar in de Tasks-plugin
-- de opname buiten de vault in `Documenten\Notetaker\audio`, omdat WAV-bestanden groot zijn en synchronisatie vertragen. Met `audio_in_vault = true` komt de opname naast de notitie en speelt ze af in Obsidian via `![[...]]`.
+- de opname als Opus (`.ogg`, ongeveer 15 MB per uur), standaard buiten de vault in `Documenten\Notetaker\audio`. Met `audio_in_vault = true` komt de opname naast de notitie en speelt ze af in Obsidian via `![[...]]`.
 
 Map, tags en taakformaat staan onder `[obsidian]` in de configuratie.
 

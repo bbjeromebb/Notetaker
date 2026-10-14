@@ -1,4 +1,4 @@
-"""Opdrachtregel: `notetaker run | meeting | transcribe | summarize | vault | init-config | devices`."""
+"""Opdrachtregel: `notetaker run | meeting | transcribe | summarize | vault | check | init-config | devices`."""
 from __future__ import annotations
 
 import argparse
@@ -115,6 +115,38 @@ def cmd_vault(cfg, args) -> None:
     print(f"Verslagen gaan voortaan naar {vault / cfg.obsidian.folder}")
 
 
+def cmd_check(cfg, args) -> None:
+    """Controleert GPU, Ollama-modellen en opslagmap, zonder iets op te nemen."""
+    from .llm import LLMError, OllamaLLM
+    from .stt import resolve_device
+
+    print("Spraakherkenning")
+    if cfg.stt.backend == "faster-whisper":
+        device, compute, reason = resolve_device(cfg.stt)
+        print(f"  {cfg.stt.model} op {device} ({compute})")
+        if reason:
+            print(f"  {reason}")
+    else:
+        print(f"  {cfg.stt.backend}")
+    print("Taalmodel")
+    if cfg.llm.backend == "ollama":
+        try:
+            installed = OllamaLLM(cfg.llm).models()
+            for model in {cfg.llm.cleanup_model, cfg.llm.summary_model}:
+                ok = model in installed or f"{model}:latest" in installed
+                print(f"  {model}: {'aanwezig' if ok else 'ontbreekt, voer ollama pull ' + model + ' uit'}")
+            gpu = {-1: "Ollama beslist", 0: "enkel CPU"}.get(cfg.llm.num_gpu, f"{cfg.llm.num_gpu} lagen")
+            print(f"  GPU-gebruik: {gpu}")
+        except LLMError as e:
+            print(f"  {e}")
+    else:
+        print(f"  {cfg.llm.backend}")
+    print("Opslag")
+    print(f"  verslagen: {cfg.meetings_dir}")
+    print(f"  opnames:   {cfg.audio_dir if cfg.meeting.keep_audio else 'niet bewaard'}"
+          f" ({cfg.meeting.audio_format})")
+
+
 def cmd_init(cfg, args) -> None:
     print(f"Configuratie: {config_mod.write_example()}")
 
@@ -147,6 +179,7 @@ def main(argv: list[str] | None = None) -> None:
     v.add_argument("path", nargs="?", help="map van de vault; leeg = huidige en bekende tonen")
     v.add_argument("--off", action="store_true", help="niet meer in Obsidian opslaan")
     v.set_defaults(fn=cmd_vault)
+    sub.add_parser("check", help="GPU, Ollama-modellen en opslag controleren").set_defaults(fn=cmd_check)
     sub.add_parser("init-config", help="voorbeeldconfiguratie aanmaken").set_defaults(fn=cmd_init)
     sub.add_parser("devices", help="audioapparaten tonen").set_defaults(fn=cmd_devices)
     args = p.parse_args(argv)

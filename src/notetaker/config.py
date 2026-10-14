@@ -22,7 +22,7 @@ class STTConfig:
     backend: str = "faster-whisper"
     model: str = "large-v3-turbo"
     device: str = "auto"  # "cuda", "cpu" of "auto"
-    compute_type: str = "int8"
+    compute_type: str = "auto"  # auto: int8_float16 op GPU, int8 op CPU
     language: str = "nl"
     api_base: str = "https://api.groq.com/openai/v1"
     api_model: str = "whisper-large-v3-turbo"
@@ -40,6 +40,7 @@ class LLMConfig:
     ollama_url: str = "http://localhost:11434"
     num_ctx: int = 16384
     keep_alive: str = "30m"
+    num_gpu: int = -1  # lagen op de GPU; -1 = Ollama beslist, 0 = enkel CPU (laat VRAM aan Whisper)
     # OpenAI-compatibele API
     api_base: str = "https://api.groq.com/openai/v1"
     api_key_env: str = "GROQ_API_KEY"
@@ -74,6 +75,8 @@ class MeetingConfig:
     mic_device: str = ""
     loopback_device: str = ""  # leeg = standaard luidspreker (Windows WASAPI-loopback)
     keep_audio: bool = True
+    audio_format: str = "opus"  # "opus" (.ogg, klein) of "wav"
+    audio_bitrate: int = 32000
     echo_threshold: float = 0.75
 
 

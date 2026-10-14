@@ -179,6 +179,42 @@ def write_wav(target, audio: np.ndarray, sr: int = SAMPLE_RATE) -> None:
         wf.writeframes(pcm.tobytes())
 
 
+def write_opus(path: Path, audio: np.ndarray, sr: int = SAMPLE_RATE, bitrate: int = 32000) -> None:
+    """Opus in Ogg via PyAV (zit al bij faster-whisper): ongeveer 15 MB per uur in plaats van 115 MB WAV."""
+    import av
+
+    pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
+    with av.open(str(path), "w", format="ogg") as out:
+        stream = out.add_stream("libopus", rate=sr, layout="mono")
+        stream.bit_rate = bitrate
+        for start in range(0, pcm.size, sr):
+            frame = av.AudioFrame.from_ndarray(pcm[start:start + sr].reshape(1, -1), format="s16",
+                                               layout="mono")
+            frame.sample_rate = sr
+            for packet in stream.encode(frame):
+                out.mux(packet)
+        for packet in stream.encode(None):
+            out.mux(packet)
+
+
+def write_audio(path: Path, audio: np.ndarray, fmt: str = "opus", bitrate: int = 32000) -> Path:
+    """Schrijft Opus (.ogg) of WAV; valt terug op WAV als Opus niet lukt. Geeft het echte pad terug."""
+    path = Path(path)
+    if fmt == "opus":
+        target = path.with_suffix(".ogg")
+        try:
+            write_opus(target, audio, bitrate=bitrate)
+            return target
+        except Exception as e:  # PyAV ontbreekt of encoder niet beschikbaar
+            import logging
+
+            logging.getLogger(__name__).warning("Opus mislukt (%s), opslaan als WAV.", e)
+            target.unlink(missing_ok=True)
+    target = path.with_suffix(".wav")
+    write_wav(target, audio)
+    return target
+
+
 def load_audio(path: Path) -> np.ndarray:
     """Leest WAV zelf; andere formaten (mp3, m4a, mp4, ...) via de decoder van faster-whisper."""
     if Path(path).suffix.lower() == ".wav":
