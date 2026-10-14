@@ -1,4 +1,4 @@
-"""Opdrachtregel: `notetaker run | meeting | transcribe | summarize | vault | inbox | update | check | set | init-config | devices`."""
+"""Opdrachtregel: `notetaker run | meeting | transcribe | summarize | vault | inbox | update | about | key | check | set | init-config | devices`."""
 from __future__ import annotations
 
 import argparse
@@ -9,6 +9,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from . import __version__
 from . import config as config_mod
 from .obsidian import atomic_write_text
 
@@ -205,6 +206,34 @@ def cmd_update(cfg, args) -> None:
     sys.exit(subprocess.call(["git", "-C", str(updater.REPO_ROOT), "pull", "--ff-only"]))
 
 
+def cmd_about(cfg, args) -> None:
+    from .about import about_text
+
+    print(about_text(cfg))
+
+
+def cmd_key(cfg, args) -> None:
+    import getpass
+
+    from .providers import PROVIDERS, get_key, mask, set_key
+
+    keyed = [p for p in PROVIDERS.values() if p.needs_key]
+    if args.action == "list" or not args.provider:
+        for p in keyed:
+            value = get_key(p.key)
+            print(f"  {p.key:<11} {mask(value) if value else 'geen'}")
+        return
+    if args.provider not in PROVIDERS or not PROVIDERS[args.provider].needs_key:
+        sys.exit("Onbekende aanbieder. Kies uit: " + ", ".join(p.key for p in keyed))
+    if args.action == "delete":
+        set_key(args.provider, "")
+        print(f"Sleutel voor {args.provider} gewist.")
+        return
+    value = getpass.getpass(f"API-sleutel voor {PROVIDERS[args.provider].label} (wordt niet getoond): ")
+    set_key(args.provider, value)
+    print(f"Bewaard in de kluis: {mask(value)}")
+
+
 def parse_value(raw: str):
     low = raw.lower()
     if low in ("true", "false"):
@@ -256,6 +285,7 @@ def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="notetaker", description=__doc__)
     p.add_argument("--config", type=Path, help="pad naar config.toml")
     p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument("--version", action="version", version=f"notetaker {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("run", help="achtergrondapp: dicteren + vergaderingen via systeemvak").set_defaults(fn=cmd_run)
     m = sub.add_parser("meeting", help="vergadering opnemen tot Ctrl+C")
@@ -282,6 +312,11 @@ def main(argv: list[str] | None = None) -> None:
     ib.add_argument("--folder", help="map die Syncthing vult (anders [inbox] folder)")
     ib.add_argument("--watch", action="store_true", help="blijven wachten op nieuwe opnames")
     ib.set_defaults(fn=cmd_inbox)
+    sub.add_parser("about", help="versie, modellen en paden tonen").set_defaults(fn=cmd_about)
+    k = sub.add_parser("key", help="API-sleutels beheren (Windows-kluis)")
+    k.add_argument("action", choices=["list", "set", "delete"])
+    k.add_argument("provider", nargs="?", help="bv. groq, gemini, openai, openrouter, anthropic")
+    k.set_defaults(fn=cmd_key)
     up = sub.add_parser("update", help="nieuwste versie ophalen en installeren")
     up.add_argument("--check", action="store_true", help="enkel tonen wat er nieuw is")
     up.set_defaults(fn=cmd_update)

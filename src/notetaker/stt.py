@@ -188,9 +188,11 @@ class OpenAICompatibleTranscriber:
     def __init__(self, cfg: STTConfig) -> None:
         from openai import OpenAI
 
-        key = os.environ.get(cfg.api_key_env)
+        from .providers import get_key
+
+        key = get_key(cfg.provider, cfg.api_key_env)
         if not key:
-            raise RuntimeError(f"Omgevingsvariabele {cfg.api_key_env} ontbreekt.")
+            raise RuntimeError(f"Geen API-sleutel voor {cfg.provider}. Voeg ze toe via Instellingen.")
         self.client = OpenAI(api_key=key, base_url=cfg.api_base)
         self.model = cfg.api_model
         self.language = cfg.language

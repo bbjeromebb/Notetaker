@@ -124,10 +124,14 @@ Beperking: Android laat apps het gespreksgeluid van Teams, Zoom of Meet niet opn
 | `llm.backend = "ollama"` (standaard) | tekst blijft lokaal | 1 tot 5 s per dictee, afhankelijk van hardware | gratis |
 | `llm.backend = "openai-compatible"` + Groq | tekst naar de VS | snel | gratis tier met rate limits |
 | `llm.backend = "openai-compatible"` + Gemini | Google mag gratis invoer gebruiken | snel | gratis tier |
-| `llm.backend = "anthropic"` | tekst naar Anthropic | snel | betalend (`pip install -e ".[claude]"`) |
+| `llm.backend = "anthropic"` | tekst naar Anthropic | snel | betalend |
 | `llm.backend = "none"` | volledig lokaal | direct | gratis, enkel basisopkuis |
 
-Voor Groq of Gemini: `pip install -e ".[api]"`, maak een gratis sleutel aan en zet die als omgevingsvariabele (`setx GROQ_API_KEY "..."`). Voorbeeldinstellingen staan in commentaar in de configuratie.
+Modellen kiezen en API-sleutels toevoegen gaat via **Instellingen...** in het menu van het systeemvak: spraakherkenning (lokaal Whisper-model of Groq/OpenAI via API), aanbieder en modellen voor opkuis en verslagen (Ollama, Groq, Gemini, OpenAI, OpenRouter, Claude of geen), en de sleutels per aanbieder. "Modellen ophalen en verbinding testen" haalt de actuele modellenlijst op, ook de geïnstalleerde Ollama-modellen. Sleutels staan in de Windows-kluis (Credential Manager), niet in `config.toml`; een omgevingsvariabele zoals `GROQ_API_KEY` werkt als terugvaloptie. Na opslaan start Notetaker opnieuw met de nieuwe modellen.
+
+Vanaf de opdrachtregel: `notetaker key set groq`, `notetaker key list`, `notetaker key delete groq`.
+
+**Over Notetaker** in hetzelfde menu toont versie, gekozen modellen, of Whisper op de GPU draait en waar configuratie, logbestand en verslagen staan. Op de opdrachtregel: `notetaker about` of `notetaker --version`.
 
 Lange vergaderingen worden in delen samengevat (`summary_chunk_chars`) en daarna samengevoegd tot één verslag. Dat houdt kleine lokale modellen en de limieten van gratis tiers binnen hun grenzen.
 

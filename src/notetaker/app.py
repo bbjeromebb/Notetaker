@@ -202,9 +202,11 @@ class TrayApp:
                 target=self.toggle_meeting, daemon=True).start()),
             pystray.MenuItem("Verslagen opslaan in", pystray.Menu(self._vault_items)),
             pystray.MenuItem("Map met verslagen openen", lambda i, it: _open_folder(self.cfg.meetings_dir)),
+            pystray.MenuItem("Instellingen...", lambda i, it: self.open_settings()),
             pystray.MenuItem("Configuratie openen", lambda i, it: _open_folder(app_dir())),
             pystray.MenuItem("Bijwerken", lambda i, it: threading.Thread(
                 target=self.update, daemon=True).start()),
+            pystray.MenuItem("Over Notetaker", lambda i, it: self.open_about()),
             pystray.MenuItem("Afsluiten", self._quit),
         )
         self.icon = pystray.Icon("notetaker", _icon_image(COLORS["idle"]), "Notetaker", menu)
@@ -224,6 +226,34 @@ class TrayApp:
         log.info("Klaar (versie %s). Houd %s ingedrukt om te dicteren.",
                  updater.current_version(), display_combo(d.hotkey))
         self.icon.run()
+
+    def open_about(self) -> None:
+        from .settings_ui import show_about
+
+        device = getattr(self.transcriber, "device", "")
+        self.ui.call(lambda: show_about(self.ui.root, self.cfg, device, self.update))
+
+    def open_settings(self) -> None:
+        from .settings_ui import SettingsWindow
+
+        def saved():
+            self._notify("Instellingen bewaard. Notetaker start opnieuw met de nieuwe modellen.")
+            threading.Thread(target=self.restart, daemon=True).start()
+
+        self.ui.call(lambda: SettingsWindow(self.ui.root, self.config_path, saved))
+
+    def restart(self) -> None:
+        """Nieuwe modellen worden enkel bij het starten geladen: nieuw proces, dit afsluiten."""
+        import subprocess
+
+        if self.meeting is not None and self.meeting.running:
+            self._notify("Herstart uitgesteld: eerst de vergadering stoppen.")
+            return
+        code = ("import time; time.sleep(2); "
+                "from notetaker.__main__ import run_app; run_app()")
+        flags = 0x00000008 | 0x00000200 if sys.platform == "win32" else 0
+        subprocess.Popen([sys.executable, "-c", code], creationflags=flags, close_fds=True)
+        self._quit(self.icon, None)
 
     def _check_updates_quietly(self) -> None:
         try:

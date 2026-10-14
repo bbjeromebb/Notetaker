@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import urllib.error
 import urllib.request
@@ -100,9 +99,12 @@ class OpenAICompatibleLLM:
     def __init__(self, cfg: LLMConfig) -> None:
         import openai
 
-        key = os.environ.get(cfg.api_key_env, "")
+        from .providers import PROVIDERS, get_key
+
+        key = get_key(cfg.provider, cfg.api_key_env)
         if not key:
-            raise LLMError(f"Omgevingsvariabele {cfg.api_key_env} ontbreekt.")
+            label = PROVIDERS[cfg.provider].label if cfg.provider in PROVIDERS else cfg.provider
+            raise LLMError(f"Geen API-sleutel voor {label}. Voeg ze toe via Instellingen.")
         self._openai = openai
         # Gratis tiers hebben strikte rate limits: de SDK wacht en probeert opnieuw bij 429
         self.client = openai.OpenAI(api_key=key, base_url=cfg.api_base, max_retries=5)
@@ -129,9 +131,11 @@ class ClaudeLLM:
     def __init__(self) -> None:
         import anthropic
 
+        from .providers import get_key
+
         self._anthropic = anthropic
-        # Credentials via ANTHROPIC_API_KEY of een 'ant auth login'-profiel
-        self.client = anthropic.Anthropic()
+        # Sleutel uit de kluis; anders ANTHROPIC_API_KEY of een 'ant auth login'-profiel
+        self.client = anthropic.Anthropic(api_key=get_key("anthropic") or None)
 
     def complete(self, system: str, prompt: str, *, model: str, effort: str,
                  max_tokens: int = 16000) -> str:

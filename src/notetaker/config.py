@@ -27,12 +27,14 @@ class STTConfig:
     api_base: str = "https://api.groq.com/openai/v1"
     api_model: str = "whisper-large-v3-turbo"
     api_key_env: str = "GROQ_API_KEY"
+    provider: str = "groq"  # sleutel in de kluis bij de API-variant
 
 
 @dataclass
 class LLMConfig:
     # "ollama" (lokaal, gratis), "openai-compatible" (Groq/Gemini/OpenRouter), "anthropic" of "none"
     backend: str = "ollama"
+    provider: str = "ollama"  # zie providers.py; bepaalt welke API-sleutel gebruikt wordt
     cleanup_model: str = "gemma3:4b"
     summary_model: str = "gemma3:12b"
     temperature: float = 0.2
