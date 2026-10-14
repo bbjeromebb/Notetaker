@@ -8,7 +8,7 @@ from typing import Callable
 
 from .about import REPO_URL, about_rows
 from .config import Config, load
-from .providers import (PROVIDERS, STT_LOCAL, WHISPER_MODELS, apply_choice, get_key,
+from .providers import (PROVIDERS, STT_LOCAL, WHISPER_MODELS, apply_choice, get_key, parse_folders,
                         keyring_available, list_models, mask, set_key, stt_choices)
 
 PAD = {"padx": 10, "pady": 4}
@@ -111,9 +111,24 @@ class SettingsWindow:
         ttk.Label(llm_box, textvariable=self.status, foreground="#2563eb", wraplength=430).grid(
             row=4, column=0, columnspan=2, sticky="w", padx=10)
 
+        # Opnames in de vault
+        rec_box = ttk.LabelFrame(body, text="Opnames in de Obsidian-vault", padding=8)
+        rec_box.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        folders = self.cfg.inbox.vault_folders
+        self.vault_folders = tk.StringVar(
+            value=folders if isinstance(folders, str) else ", ".join(folders))
+        ttk.Label(rec_box, text="Mappen").grid(row=0, column=0, sticky="w", **PAD)
+        ttk.Entry(rec_box, textvariable=self.vault_folders, width=44).grid(row=0, column=1, sticky="w", **PAD)
+        hint = ("Geluidsbestanden hier worden getranscribeerd en samengevat. Komma's tussen mappen, "
+                "* = hele vault. De eerste map wordt aangemaakt: kies ze als inboxmap in de Android-app.")
+        if not self.cfg.obsidian.vault:
+            hint = "Nog geen vault gekozen (menu 'Verslagen opslaan in'). " + hint
+        ttk.Label(rec_box, text=hint, foreground="#6b7280", wraplength=690).grid(
+            row=1, column=0, columnspan=2, sticky="w", padx=10)
+
         # API-sleutels
         key_box = ttk.LabelFrame(body, text="API-sleutels (bewaard in de Windows-kluis)", padding=8)
-        key_box.grid(row=2, column=0, sticky="ew")
+        key_box.grid(row=3, column=0, sticky="ew")
         self.key_vars: dict[str, tk.StringVar] = {}
         keyed = [p for p in PROVIDERS.values() if p.needs_key]
         for i, p in enumerate(keyed):
@@ -134,7 +149,7 @@ class SettingsWindow:
                   foreground="#6b7280").grid(row=len(keyed) + 1, column=0, columnspan=4, sticky="w", padx=10)
 
         buttons = ttk.Frame(body)
-        buttons.grid(row=3, column=0, sticky="e", pady=(12, 0))
+        buttons.grid(row=4, column=0, sticky="e", pady=(12, 0))
         ttk.Button(buttons, text="Annuleren", command=win.destroy).pack(side="left", padx=4)
         ttk.Button(buttons, text="Opslaan en herstarten", command=self._save).pack(side="left", padx=4)
         self._provider_changed(initial=True)
@@ -196,6 +211,7 @@ class SettingsWindow:
             llm_provider=self._provider_key(),
             cleanup_model=self.cleanup.get(),
             summary_model=self.summary.get(),
+            vault_folders=parse_folders(self.vault_folders.get()),
         )
         self.win.destroy()
         self.on_saved()

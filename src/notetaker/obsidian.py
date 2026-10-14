@@ -37,6 +37,8 @@ def _toml_value(value) -> str:
         return "true" if value else "false"
     if isinstance(value, (int, float)):
         return str(value)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_toml_value(v) for v in value) + "]"
     return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
@@ -45,7 +47,8 @@ def set_toml_value(config_path: Path, section: str, key: str, value) -> None:
     config_path.parent.mkdir(parents=True, exist_ok=True)
     text = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
     line = f"{key} = {_toml_value(value)}"
-    key_re = re.compile(rf"(?m)^{re.escape(key)}\s*=.*$")
+    # Een lijst mag over meerdere regels lopen: dan tot en met de sluitende ]
+    key_re = re.compile(rf"(?m)^{re.escape(key)}[ \t]*=[ \t]*(?:\[[^\]]*\]|.*$)")
     if not section:
         head_end = re.search(r"(?m)^\[", text)
         head = text[: head_end.start()] if head_end else text

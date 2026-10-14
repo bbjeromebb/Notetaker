@@ -145,6 +145,12 @@ fun NotetakerScreen(refresh: StateFlow<Int>) {
                 Column(Modifier.weight(1f)) {
                     Text("Inboxmap (Syncthing)", style = MaterialTheme.typography.labelMedium)
                     Text(inboxName ?: "Nog niet gekozen", style = MaterialTheme.typography.bodyLarge)
+                    if (inboxName == null) {
+                        Text(
+                            "Tip: kies de map Notetaker in je Obsidian-vault",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
                 TextButton(onClick = { pickFolder.launch(null) }) {
                     Text(if (inboxName == null) "Kiezen" else "Wijzigen")

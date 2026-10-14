@@ -5,8 +5,8 @@ from datetime import datetime
 
 from notetaker import config
 from notetaker.audio import write_wav
-from notetaker.inbox import (ProcessedLog, ensure_vault_since, process_file, process_vault,
-                             started_from_name, vault_candidates)
+from notetaker.inbox import (ProcessedLog, ensure_vault_folder, ensure_vault_since, pending, process_file,
+                             process_vault, started_from_name, vault_audio_folders, vault_candidates)
 
 from test_core import FakeLLM, FakeTranscriber, tone
 
@@ -110,3 +110,46 @@ def test_ensure_vault_since_written_once(tmp_path):
     assert first and config.load(p).inbox.vault_since == first
     ensure_vault_since(cfg, p)
     assert cfg.inbox.vault_since == first
+
+
+def test_default_watches_notetaker_folder_and_creates_it(tmp_path):
+    cfg, vault, _ = setup(tmp_path)
+    assert config.Config().inbox.vault_folders == ["Notetaker", "Opnames"]
+    assert ensure_vault_folder(cfg) == vault / "Notetaker" and (vault / "Notetaker").is_dir()
+    cfg.inbox.vault_folders = ["*", "Telefoon/Opnames"]
+    assert ensure_vault_folder(cfg) == vault / "Telefoon" / "Opnames"
+    cfg.obsidian.vault = str(tmp_path / "bestaat-niet")
+    assert ensure_vault_folder(cfg) is None and not (tmp_path / "bestaat-niet").exists()
+
+
+def test_vault_folders_as_single_string(tmp_path):
+    cfg, vault, _ = setup(tmp_path)
+    cfg.inbox.vault_folders = "Notetaker"
+    assert vault_audio_folders(cfg) == [vault / "Notetaker"]
+
+
+def test_syncthing_conflict_copies_are_skipped(tmp_path):
+    cfg, vault, log_ = setup(tmp_path)
+    good = vault / "Opnames" / "opname.wav"
+    conflict = vault / "Opnames" / "opname.sync-conflict-20261014-093000-ABCDEFG.wav"
+    for p in (good, conflict):
+        write_wav(p, tone(1))
+        _age(p)
+    assert vault_candidates(cfg, log_) == [good]
+    assert pending(vault / "Opnames") == [good]
+
+
+def test_recordings_folder_same_as_meetings_folder(tmp_path):
+    cfg, vault, log_ = setup(tmp_path)
+    cfg.obsidian.folder = "Notetaker"
+    folder = vault / "Notetaker"
+    folder.mkdir()
+    audio = folder / "2026-10-14_0930_Werfoverleg.wav"
+    write_wav(audio, tone(2))
+    audio.with_suffix(".json").write_text(json.dumps({"title": "Werfoverleg"}))
+    _age(audio)
+    notes = process_vault(cfg, FakeTranscriber("We bekijken de werf."), None, log_=log_)
+    assert [n.name for n in notes] == ["2026-10-14_0930_Werfoverleg.md"]
+    # De opname staat nu naast het verslag, met dezelfde naam: niet opnieuw verwerken
+    assert audio.exists() and not audio.with_suffix(".json").exists()
+    assert vault_candidates(cfg, log_) == []

@@ -69,9 +69,11 @@ audio_in_vault = false  # true = opname naast de notitie, afspeelbaar via ![[...
 
 [inbox]
 # Opnames in deze mappen van de vault worden automatisch getranscribeerd en samengevat.
-# Opnames van de Android-app (met .json) verdwijnen na verwerking; andere blijven staan.
-# "*" = de hele vault. Enkel opnames van na de eerste start (vault_since).
-vault_folders = ["Opnames"]
+# De eerste map (Notetaker) wordt aangemaakt als ze ontbreekt: kies ze als inboxmap in de
+# Android-app en als bijlagenmap in Obsidian. Opnames van de Android-app (met .json)
+# verdwijnen na verwerking; andere blijven staan. "*" = de hele vault.
+# Enkel opnames van na de eerste start (vault_since).
+vault_folders = ["Notetaker", "Opnames"]
 # folder = "C:/pad/naar/aparte/Syncthing-map"   # optioneel, buiten de vault
 
 [replacements]

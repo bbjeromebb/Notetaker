@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import re
 import sys
@@ -158,7 +159,8 @@ def cmd_check(cfg, args) -> None:
     print("Opnames opvolgen")
     print(f"  aparte inbox: {cfg.inbox.folder or 'geen'}")
     folders = vault_audio_folders(cfg)
-    print("  vaultmappen:  " + (", ".join(str(p) for p in folders) if folders else "geen (geen vault)"))
+    print("  vaultmappen:  " + (", ".join(str(p) + ("" if p.is_dir() else " (ontbreekt)") for p in folders)
+                                if folders else "geen (geen vault)"))
     print("Opslag")
     print(f"  verslagen: {cfg.meetings_dir}")
     print(f"  opnames:   {cfg.audio_dir if cfg.meeting.keep_audio else 'niet bewaard'}"
@@ -247,6 +249,15 @@ def cmd_key(cfg, args) -> None:
 
 
 def parse_value(raw: str):
+    text = raw.strip()
+    if text.startswith("[") and text.endswith("]"):
+        # Lijst: ["Notetaker", "Opnames"]. PowerShell laat de aanhalingstekens soms vallen,
+        # dus [Notetaker, Opnames] werkt ook.
+        try:
+            value = json.loads(text)
+        except ValueError:
+            value = [v.strip().strip("'\"") for v in text[1:-1].split(",")]
+        return [v for v in value if v != ""]
     low = raw.lower()
     if low in ("true", "false"):
         return low == "true"

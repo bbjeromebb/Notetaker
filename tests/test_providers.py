@@ -68,6 +68,11 @@ def test_apply_choice_writes_config(tmp_path):
     cfg = config.load(p)
     assert (cfg.stt.backend, cfg.stt.model, cfg.llm.backend) == ("faster-whisper", "medium", "ollama")
     assert "Notetaker" in about_text(cfg) and "gemma3:12b" in about_text(cfg)
+    assert cfg.inbox.vault_folders == ["Notetaker", "Opnames"]
+    providers.apply_choice(p, stt=providers.STT_LOCAL, whisper_model="medium", llm_provider="ollama",
+                           cleanup_model="gemma3:4b", summary_model="gemma3:12b",
+                           vault_folders=providers.parse_folders(" Notetaker/ ; Telefoon\\Opnames, Notetaker,"))
+    assert config.load(p).inbox.vault_folders == ["Notetaker", "Telefoon/Opnames"]
 
 
 def test_stt_choices_only_providers_with_whisper():

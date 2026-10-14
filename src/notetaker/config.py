@@ -96,9 +96,10 @@ class ObsidianConfig:
 class InboxConfig:
     folder: str = ""  # aparte map die Syncthing vult met opnames van de Android-app; leeg = uit
     interval_seconds: float = 15.0
-    # Mappen in de Obsidian-vault (relatief) met opnames; "*" = de hele vault.
-    # Opnames van de Android-app (met .json) worden verwerkt en weggehaald, andere blijven staan.
-    vault_folders: list[str] = field(default_factory=lambda: ["Opnames"])
+    # Mappen in de Obsidian-vault (relatief) met opnames; "*" = de hele vault. De eerste map wordt
+    # aangemaakt als ze ontbreekt. Opnames van de Android-app (met .json) worden verwerkt en
+    # weggehaald, andere blijven staan.
+    vault_folders: list[str] = field(default_factory=lambda: ["Notetaker", "Opnames"])
     vault_since: str = ""  # oudere opnames worden genegeerd; gezet bij de eerste start
 
 

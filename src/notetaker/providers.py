@@ -110,10 +110,23 @@ def mask(value: str) -> str:
 
 # --- Modelkeuze wegschrijven ----------------------------------------------------------
 
+def parse_folders(text: str) -> list[str]:
+    """'Notetaker, Opnames/Telefoon' -> ["Notetaker", "Opnames/Telefoon"]; "*" blijft "*"."""
+    out = []
+    for part in text.replace(";", ",").split(","):
+        name = part.strip().replace("\\", "/").strip("/").strip()
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
 def apply_choice(config_path: Path, *, stt: str, whisper_model: str, llm_provider: str,
-                 cleanup_model: str, summary_model: str) -> None:
+                 cleanup_model: str, summary_model: str, vault_folders: list[str] | None = None) -> None:
     """Schrijft een keuze uit het instellingenvenster naar config.toml (rest blijft staan)."""
     from .obsidian import set_toml_value
+
+    if vault_folders is not None:
+        set_toml_value(config_path, "inbox", "vault_folders", vault_folders)
 
     if stt == STT_LOCAL:
         set_toml_value(config_path, "stt", "backend", "faster-whisper")

@@ -3,7 +3,7 @@
 Twee soorten bronnen:
 
 1. Opnames van de Android-app: `<naam>.ogg` met `<naam>.json` (titel, starttijd, eigen notities),
-   in een aparte Syncthing-map of in een map van de vault (standaard `Opnames`). Na verwerking
+   in een aparte Syncthing-map of in een map van de vault (standaard `Notetaker`). Na verwerking
    verdwijnen ze uit die map; Syncthing verwijdert ze dan ook op de telefoon, zo ziet de app dat
    ze verwerkt zijn.
 2. Andere opnames in de vault (Obsidian-opnamefunctie, dictafoon-app, gekopieerde bestanden):
@@ -36,6 +36,13 @@ log = logging.getLogger(__name__)
 AUDIO_EXTENSIONS = {".ogg", ".opus", ".m4a", ".mp3", ".wav", ".webm", ".aac", ".flac", ".3gp", ".mp4"}
 FAILED_SUFFIX = ".fout.txt"
 SKIP_DIRS = {".obsidian", ".trash", ".git", ".stfolder", ".stversions"}
+CONFLICT_MARK = ".sync-conflict-"  # Syncthing: "opname.sync-conflict-20261014-093000-ABCDEFG.ogg"
+WHOLE_VAULT = ("*", "", ".")
+
+
+def _skip_name(name: str) -> bool:
+    """Verborgen tijdelijke bestanden en conflictkopieën van Syncthing nooit verwerken."""
+    return name.startswith(".") or CONFLICT_MARK in name
 
 
 @dataclass
@@ -121,7 +128,7 @@ def _walk(root: Path, extensions: set[str], exclude: Path | None = None):
         if exclude is not None and (here == exclude or exclude in here.parents):
             continue
         for name in filenames:
-            if not name.startswith(".") and Path(name).suffix.lower() in extensions:
+            if not _skip_name(name) and Path(name).suffix.lower() in extensions:
                 yield here / name
 
 
@@ -139,7 +146,7 @@ def pending(folder: Path, min_age: float = 10.0, now: float | None = None) -> li
     now = time.time() if now is None else now
     out = []
     for p in sorted(folder.iterdir()):
-        if p.name.startswith(".") or p.suffix.lower() not in AUDIO_EXTENSIONS:
+        if _skip_name(p.name) or p.suffix.lower() not in AUDIO_EXTENSIONS:
             continue  # Syncthing en de app schrijven eerst naar verborgen tijdelijke bestanden
         if p.with_name(p.name + FAILED_SUFFIX).exists():
             continue
@@ -172,11 +179,36 @@ class ProcessedLog:
         atomic_write_text(self.path, json.dumps(self.data, ensure_ascii=False, indent=1))
 
 
+def _folder_names(cfg: Config) -> list[str]:
+    folders = cfg.inbox.vault_folders
+    if isinstance(folders, str):  # vault_folders = "Notetaker" in plaats van een lijst
+        folders = [folders]
+    return [str(f) for f in folders]
+
+
 def vault_audio_folders(cfg: Config) -> list[Path]:
     if not cfg.obsidian.vault:
         return []
     vault = Path(cfg.obsidian.vault).expanduser()
-    return [vault if f in ("*", "", ".") else vault / f for f in cfg.inbox.vault_folders]
+    return [vault if f in WHOLE_VAULT else vault / f for f in _folder_names(cfg)]
+
+
+def ensure_vault_folder(cfg: Config) -> Path | None:
+    """Maakt de eerste opnamemap in de vault aan (standaard `Notetaker`). Syncthing brengt de lege
+    map naar de telefoon, zodat ze daar als inboxmap te kiezen is. De vault zelf wordt nooit aangemaakt."""
+    if not cfg.obsidian.vault:
+        return None
+    vault = Path(cfg.obsidian.vault).expanduser()
+    names = [f for f in _folder_names(cfg) if f not in WHOLE_VAULT]
+    if not vault.is_dir() or not names:
+        return None
+    folder = vault / names[0]
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        log.warning("Opnamemap %s niet aangemaakt: %s", folder, e)
+        return None
+    return folder
 
 
 def vault_candidates(cfg: Config, log_: ProcessedLog, min_age: float = 10.0,
@@ -194,10 +226,15 @@ def vault_candidates(cfg: Config, log_: ProcessedLog, min_age: float = 10.0,
     for folder in vault_audio_folders(cfg):
         if not folder.is_dir():
             continue
-        for p in _walk(folder, AUDIO_EXTENSIONS, exclude=own):
+        # Valt de opnamemap samen met de verslagenmap, dan enkel de eigen opnames overslaan:
+        # die dragen dezelfde naam als hun verslag.
+        inside_own = folder == own or own in folder.parents
+        for p in _walk(folder, AUDIO_EXTENSIONS, exclude=None if inside_own else own):
             if p in seen:
                 continue
             seen.add(p)
+            if inside_own and p.parent == own and p.with_suffix(".md").exists():
+                continue
             if not _is_ready(p, now, min_age) or log_.done(p):
                 continue
             if p.with_suffix(".json").exists():
@@ -367,6 +404,7 @@ class InboxWatcher:
         if not self.cfg.inbox.folder and not self.cfg.obsidian.vault:
             return
         ensure_vault_since(self.cfg, self.config_path)
+        ensure_vault_folder(self.cfg)
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
         log.info("Opnames opvolgen: inbox %s, vaultmappen %s", self.cfg.inbox.folder or "-",

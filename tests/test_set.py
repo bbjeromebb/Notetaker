@@ -18,3 +18,19 @@ def test_set_on_example_config_keeps_comments(tmp_path):
     assert cfg.llm.num_gpu == 0 and cfg.obsidian.audio_in_vault is True
     assert cfg.llm.summary_model == "gemma3:12b"
     assert "# Alternatief 1: Groq" in p.read_text(encoding="utf-8")
+
+
+def test_parse_value_lists():
+    assert parse_value('["Notetaker", "Opnames"]') == ["Notetaker", "Opnames"]
+    assert parse_value("[Notetaker, Opnames]") == ["Notetaker", "Opnames"]  # PowerShell zonder aanhalingstekens
+    assert parse_value("[]") == []
+
+
+def test_set_list_replaces_multiline_array(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text('[inbox]\nvault_folders = [\n  "Opnames",\n]  # eigen commentaar\ninterval_seconds = 20\n',
+                 encoding="utf-8")
+    main(["--config", str(p), "set", "inbox.vault_folders", '["Notetaker", "Bijlagen"]'])
+    cfg = config.load(p)
+    assert cfg.inbox.vault_folders == ["Notetaker", "Bijlagen"] and cfg.inbox.interval_seconds == 20
+    assert "# eigen commentaar" in p.read_text(encoding="utf-8")
