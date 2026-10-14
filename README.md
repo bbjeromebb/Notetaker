@@ -18,7 +18,20 @@ Bij `git clone` vraagt Windows om in te loggen bij GitHub, omdat de repository p
 
 Het script installeert Python 3.12 en Ollama via winget, zet een virtuele omgeving op, installeert de GPU-bibliotheken als er een NVIDIA-kaart is, haalt `gemma3:4b` en `gemma3:12b` op, maakt de configuratie aan, vraagt naar je Obsidian-vault, downloadt het spraakmodel en test de GPU. Daarna maakt het een snelkoppeling in het startmenu en bij het aanmelden, en start het de app. Reken op 15 tot 30 minuten, vooral door ongeveer 11 GB aan modellen.
 
-Bijwerken: `git pull` en het script opnieuw uitvoeren. Opties: `-NoGpu`, `-NoAutostart`, `-SummaryModel gemma3:4b`.
+Opties: `-NoGpu`, `-NoAutostart`, `-SummaryModel gemma3:4b`.
+
+### Bijwerken
+
+Kies **Bijwerken** in het menu van het systeemvak. Notetaker haalt de nieuwste versie op, sluit af, installeert enkel nieuwe pakketten als de afhankelijkheden veranderden, en start opnieuw. Configuratie, vault, modellen en snelkoppelingen blijven ongewijzigd. Een minuut na het opstarten controleert de app zelf of er een update is en meldt dat.
+
+Vanaf de opdrachtregel:
+
+```powershell
+notetaker update --check                                  # tonen wat er nieuw is
+powershell -ExecutionPolicy Bypass -File .\update.ps1     # bijwerken (met -Restart: daarna opnieuw starten)
+```
+
+Verloop staat in `%APPDATA%\Notetaker\update.log`. Mislukt een update, dan start de vorige versie opnieuw. `install.ps1` opnieuw uitvoeren blijft mogelijk, bv. om modellen te wisselen; het vraagt dan niet opnieuw naar de vault.
 
 Handmatig installeren:
 

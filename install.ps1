@@ -122,9 +122,15 @@ if ($gpu) {
 }
 Run $Nt @("set", "obsidian.audio_in_vault", "true") "Instelling"
 
-Write-Host ""
-& $Nt vault
-$vault = Read-Host "    Pad naar je Obsidian-vault (Enter = later kiezen via het menu)"
+$current = (& $VPy -c "from notetaker.config import load; print(load().obsidian.vault)").Trim()
+if ($current) {
+    Ok "Obsidian-vault: $current"
+    $vault = ""
+} else {
+    Write-Host ""
+    & $Nt vault
+    $vault = Read-Host "    Pad naar je Obsidian-vault (Enter = later kiezen via het menu)"
+}
 if ($vault) {
     $vault = $vault.Trim('"', ' ')
     & $Nt vault $vault

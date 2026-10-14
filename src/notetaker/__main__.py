@@ -1,4 +1,4 @@
-"""Opdrachtregel: `notetaker run | meeting | transcribe | summarize | vault | inbox | check | set | init-config | devices`."""
+"""Opdrachtregel: `notetaker run | meeting | transcribe | summarize | vault | inbox | update | check | set | init-config | devices`."""
 from __future__ import annotations
 
 import argparse
@@ -179,6 +179,29 @@ def cmd_inbox(cfg, args) -> None:
         time.sleep(cfg.inbox.interval_seconds)
 
 
+def cmd_update(cfg, args) -> None:
+    import subprocess
+
+    from . import updater
+
+    if not updater.is_git_checkout():
+        sys.exit("Geen Git-installatie: bijwerken kan enkel na installatie via git clone.")
+    changes = updater.pending_updates()
+    if not changes:
+        print("Al de nieuwste versie.")
+        return
+    print(f"{len(changes)} nieuwe wijziging(en):")
+    for line in changes:
+        print(f"  - {line}")
+    if args.check:
+        return
+    if sys.platform == "win32":
+        script = updater.REPO_ROOT / "update.ps1"
+        sys.exit(subprocess.call(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                                  "-File", str(script)]))
+    sys.exit(subprocess.call(["git", "-C", str(updater.REPO_ROOT), "pull", "--ff-only"]))
+
+
 def parse_value(raw: str):
     low = raw.lower()
     if low in ("true", "false"):
@@ -256,6 +279,9 @@ def main(argv: list[str] | None = None) -> None:
     ib.add_argument("--folder", help="map die Syncthing vult (anders [inbox] folder)")
     ib.add_argument("--watch", action="store_true", help="blijven wachten op nieuwe opnames")
     ib.set_defaults(fn=cmd_inbox)
+    up = sub.add_parser("update", help="nieuwste versie ophalen en installeren")
+    up.add_argument("--check", action="store_true", help="enkel tonen wat er nieuw is")
+    up.set_defaults(fn=cmd_update)
     st = sub.add_parser("set", help="één instelling wijzigen, bv. 'set llm.num_gpu 0'")
     st.add_argument("key", help="sectie.sleutel")
     st.add_argument("value")

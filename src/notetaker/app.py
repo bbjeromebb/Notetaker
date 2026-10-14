@@ -20,6 +20,7 @@ from .obsidian import is_vault, known_vaults, set_vault
 from .overlay import Overlay, UiThread
 from .inbox import InboxWatcher
 from .stt import SerializedTranscriber, build_transcriber
+from . import updater
 
 log = logging.getLogger(__name__)
 
@@ -202,6 +203,8 @@ class TrayApp:
             pystray.MenuItem("Verslagen opslaan in", pystray.Menu(self._vault_items)),
             pystray.MenuItem("Map met verslagen openen", lambda i, it: _open_folder(self.cfg.meetings_dir)),
             pystray.MenuItem("Configuratie openen", lambda i, it: _open_folder(app_dir())),
+            pystray.MenuItem("Bijwerken", lambda i, it: threading.Thread(
+                target=self.update, daemon=True).start()),
             pystray.MenuItem("Afsluiten", self._quit),
         )
         self.icon = pystray.Icon("notetaker", _icon_image(COLORS["idle"]), "Notetaker", menu)
@@ -215,8 +218,41 @@ class TrayApp:
                 self.overlay = None
         self.listener.start()
         self.inbox.start()
+        check = threading.Timer(60, self._check_updates_quietly)
+        check.daemon = True
+        check.start()
         log.info("Klaar. Houd %s ingedrukt om te dicteren.", display_combo(d.hotkey))
         self.icon.run()
+
+    def _check_updates_quietly(self) -> None:
+        try:
+            changes = updater.pending_updates()
+        except Exception as e:  # geen netwerk of geen git: niet storen
+            log.info("Updatecontrole overgeslagen: %s", e)
+            return
+        if changes:
+            self._notify(f"Update beschikbaar ({len(changes)} wijziging(en)). Kies 'Bijwerken' in het menu.")
+
+    def update(self) -> None:
+        if self.meeting is not None and self.meeting.running:
+            self._notify("Eerst de vergadering stoppen, daarna bijwerken.")
+            return
+        try:
+            changes = updater.pending_updates()
+        except Exception as e:
+            self._notify(f"Controleren op updates mislukt: {e}")
+            return
+        if not changes:
+            self._notify("Je hebt de nieuwste versie.")
+            return
+        try:
+            updater.start_update()
+        except Exception as e:
+            self._notify(f"Bijwerken starten mislukt: {e}")
+            return
+        self._notify(f"{len(changes)} wijziging(en) installeren. Notetaker start zo opnieuw.")
+        # Afsluiten: het updatescript vervangt bestanden en start de app daarna opnieuw
+        self._quit(self.icon, None)
 
     def _quit(self, icon, item) -> None:
         self.inbox.stop()
