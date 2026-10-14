@@ -80,3 +80,11 @@ def test_whisper_variants_from_real_test_reach_the_model():
     assert not cleanup.needs_llm("Is uw dossier klaar?")
     out = clean("We vertrekken om 3 uur. Nee, wacht, om 4 uur.", FakeLLM("We vertrekken om 4 uur."))
     assert out == "We vertrekken om 4 uur."
+
+
+def test_u_filler_removed_before_the_model():
+    """Run 5: gemma3:12b liet 'Uw,' aan het begin staan."""
+    assert cleanup.strip_u_fillers("Uw, kan je mij morgen? Uw, even bellen?") == "Kan je mij morgen? even bellen?"
+    llm = FakeLLM("Kan je mij morgen even bellen?")
+    assert clean("Uw, kan je mij morgen? Uw, even bellen?", llm) == "Kan je mij morgen even bellen?"
+    assert "Uw" not in llm.calls[0][1]

@@ -42,6 +42,13 @@ FILLERS = r"(?:euh+|eh+m*|uh+m*|um+|hm+|ehm+|uhm+)"
 _U_FILLER = r"(?:(?<=^)|(?<=[,.?!]\s)|(?<=[,.?!]))uw?(?=,)"
 _FILLER_RE = re.compile(rf"(?:(?<!\w){FILLERS}(?!\w)|{_U_FILLER})[,.]?\s*",
                         re.IGNORECASE | re.MULTILINE)
+_U_FILLER_RE = re.compile(rf"{_U_FILLER},?\s*", re.IGNORECASE | re.MULTILINE)
+
+
+def strip_u_fillers(text: str) -> str:
+    """Losse 'U,'/'Uw,' (een Vlaamse 'euh') zelf weghalen: modellen laten ze soms staan."""
+    out = _U_FILLER_RE.sub("", text).strip()
+    return out[:1].upper() + out[1:] if out else out
 
 
 def _norm(s: str) -> str:
@@ -195,6 +202,7 @@ def clean_dictation(raw: str, *, llm: LLM | None, model: str, effort: str, style
     text = fix_near_terms(text, dictionary)
     cleaned = None
     if llm is not None and needs_llm(text):
+        text = strip_u_fillers(text)
         try:
             cleaned = llm.complete(CLEANUP_SYSTEM, build_cleanup_prompt(text, style, dictionary),
                                    model=model, effort=effort, max_tokens=4000)
