@@ -61,3 +61,13 @@ def test_unfaithful_rule():
     assert cleanup.looks_unfaithful("kom je mee", "Leiedal, Kortrijk.")
     assert not cleanup.looks_unfaithful("ja euh ja", "Ja.")
     assert cleanup.looks_unfaithful("iets", "")
+
+
+def test_whisper_writes_flemish_euh_as_u():
+    """Uit de echte test: 'Euh, kan je mij morgen, euh, even bellen?' werd 'U, ... U, ...'."""
+    assert cleanup.needs_llm("U, kan je mij morgen, U, even bellen?")
+    llm = FakeLLM("Kan je mij morgen even bellen?")
+    assert clean("U, kan je mij morgen, U, even bellen?", llm) == "Kan je mij morgen even bellen?"
+    for polite in ("Kan u mij bellen?", "Dank u, meneer.", "Wilt u, als het kan, bellen?"):
+        assert not cleanup.needs_llm(polite)
+        assert clean(polite, FakeLLM("fout")) == polite

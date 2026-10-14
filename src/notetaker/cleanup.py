@@ -37,7 +37,11 @@ Is er geen selectie, schrijf dan nieuwe tekst volgens de instructie.
 Geef uitsluitend de resulterende tekst terug, zonder inleiding of uitleg. Behoud de taal van de selectie, tenzij de instructie om een vertaling vraagt."""
 
 FILLERS = r"(?:euh+|eh+m*|uh+m*|um+|hm+|ehm+|uhm+)"
-_FILLER_RE = re.compile(rf"(?<!\w){FILLERS}(?!\w)[,.]?\s*", re.IGNORECASE)
+# Whisper schrijft een Vlaamse "euh" vaak als "U,". Enkel los tussen komma's of aan het begin
+# van een zin, zodat de beleefdheidsvorm ("Kan u mij bellen?", "Dank u, meneer") blijft staan.
+_U_FILLER = r"(?:(?<=^)|(?<=[,.?!]\s)|(?<=[,.?!]))u(?=,)"
+_FILLER_RE = re.compile(rf"(?:(?<!\w){FILLERS}(?!\w)|{_U_FILLER})[,.]?\s*",
+                        re.IGNORECASE | re.MULTILINE)
 
 
 def _norm(s: str) -> str:
