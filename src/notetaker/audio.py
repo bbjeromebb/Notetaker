@@ -236,9 +236,30 @@ def load_audio(path: Path) -> np.ndarray:
         if ch > 1:
             data = data.reshape(-1, ch)
         return to_mono_16k(data, sr)
-    from faster_whisper import decode_audio
+    return decode_with_av(path)
 
-    return decode_audio(str(path), sampling_rate=SAMPLE_RATE)
+
+def decode_with_av(path: Path) -> np.ndarray:
+    """Elk formaat dat FFmpeg kent (ogg/opus, m4a, mp3, webm, ...) naar 16 kHz mono float32.
+    Eigen decoder: faster-whisper geeft PyAV een parameter (metadata_errors) die nieuwere
+    PyAV-versies niet meer kennen."""
+    import av
+
+    chunks = []
+    resampler = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
+    with av.open(str(path), mode="r") as container:
+        stream = next((s for s in container.streams if s.type == "audio"), None)
+        if stream is None:
+            raise ValueError(f"Geen geluidsspoor in {Path(path).name}")
+        for frame in container.decode(stream):
+            frame.pts = None
+            for out in resampler.resample(frame):
+                chunks.append(out.to_ndarray().reshape(-1))
+        for out in resampler.resample(None):  # rest uit de resampler
+            chunks.append(out.to_ndarray().reshape(-1))
+    if not chunks:
+        return np.zeros(0, dtype=np.float32)
+    return np.concatenate(chunks).astype(np.float32) / 32768.0
 
 
 def find_split_point(audio: np.ndarray, search_seconds: float = 3.0, window: float = 0.1) -> int:

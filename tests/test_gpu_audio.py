@@ -79,3 +79,30 @@ def test_ollama_num_gpu_and_models():
         assert seen[-1]["options"]["num_gpu"] == 0
     finally:
         server.shutdown()
+
+
+def test_ogg_and_m4a_decode_without_faster_whisper(tmp_path):
+    import av
+    import numpy as np
+
+    from notetaker.audio import SAMPLE_RATE, load_audio, write_opus
+
+    sig = (0.2 * np.sin(2 * np.pi * 440 * np.arange(3 * SAMPLE_RATE) / SAMPLE_RATE)).astype(np.float32)
+    ogg = tmp_path / "opname.ogg"
+    write_opus(ogg, sig)
+    out = load_audio(ogg)
+    assert abs(len(out) / SAMPLE_RATE - 3) < 0.2 and out.dtype == np.float32 and np.abs(out).max() > 0.1
+
+    m4a = tmp_path / "telefoon.m4a"  # zoals een dictafoon-app, 44,1 kHz stereo AAC
+    with av.open(str(m4a), "w") as c:
+        st = c.add_stream("aac", rate=44100, layout="stereo")
+        pcm = (np.tile(sig[:SAMPLE_RATE], 3) * 32767).astype(np.int16)
+        pcm = np.repeat(pcm, 44100 // SAMPLE_RATE + 1)[: 44100 * 2]
+        frame = av.AudioFrame.from_ndarray(np.stack([pcm, pcm]).reshape(1, -1), format="s16", layout="stereo")
+        frame.rate = 44100
+        for pkt in st.encode(frame):
+            c.mux(pkt)
+        for pkt in st.encode(None):
+            c.mux(pkt)
+    out = load_audio(m4a)
+    assert 1.5 < len(out) / SAMPLE_RATE < 2.5
